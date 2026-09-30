@@ -114,10 +114,8 @@
   .hero { font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; }
   .alert { display:flex; gap:10px; border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:15px; line-height:1.35; }
   .alert b { white-space:nowrap; }
-  .alert.critical { background:var(--crit-bg); color:var(--crit); }
-  .alert.warning { background:var(--warn-bg); color:var(--warn); }
-  .alert.good { background:var(--good-bg); color:var(--good); }
-  .alert.info { background:var(--info-bg); color:var(--info); }
+  .alert { background:var(--card); color:var(--text); }
+  .alert b { color:var(--muted); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.03em; padding-top:2px; }
   .meter { position:relative; height:12px; background:var(--track); border-radius:6px; margin:10px 0 6px; overflow:visible; }
   .meter .fill { position:absolute; left:0; top:0; bottom:0; border-radius:6px; background:var(--bar); }
   .meter .pace { position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--text); border-radius:1px; }
@@ -142,7 +140,6 @@
 </head>
 <body>
 <div id="lock">
-  <div style="font-size:56px">💸</div>
   <h1>Money</h1>
   <input id="url" type="url" placeholder="Paste your Web app URL (…/exec)" style="margin-bottom:8px">
   <p class="note" id="lockMsg"></p>
@@ -166,7 +163,7 @@ const inr = n => { const v = Math.round(Number(n || 0) * 100) / 100;
   return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }); };
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const ago = iso => { const m = (Date.now() - new Date(iso)) / 60000; return m < 60 ? Math.max(1, Math.round(m)) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : new Date(iso).toLocaleDateString('en-IN', { day:'numeric', month:'short' }); };
-const ICON = { critical:'⛔ Over', warning:'⚠️ Watch', good:'✅ OK', info:'ℹ️ Note' };
+const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 // Runs two ways: inside Google's page (google.script.run) or as a stand-alone Home Screen app (fetch).
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -488,11 +485,11 @@ function pickCat(merchant, current) {
   const sheet = document.createElement('div'); sheet.className = 'sheet';
   sheet.innerHTML = `<div class="sheet-bg" onclick="this.parentNode.remove()"></div><div class="sheet-card">
     <div class="sub" style="text-align:center">Always put</div><div style="text-align:center;font-weight:600;margin:2px 0 10px">${esc(merchant)}</div>
-    ${CATS.map(([c, col]) => `<button class="catpick ${c === current ? 'on' : ''}" data-c="${esc(c)}"><span class="sw lg" style="background:${col}"></span>${esc(c)}${c === current ? ' ✓' : ''}</button>`).join('')}
+    ${CATS.map(([c, col]) => `<button class="catpick ${c === current ? 'on' : ''}" data-c="${esc(c)}"><span class="sw lg" style="background:${col}"></span>${esc(c)}${c === current ? '' : ''}</button>`).join('')}
     <button class="catpick" onclick="this.closest('.sheet').remove()" style="justify-content:center;color:var(--muted)">Cancel</button></div>`;
   sheet.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
     sheet.remove(); toast('Saving…');
-    api('setCategory', { merchant, category: b.dataset.c }).then(r => { toast(r.ok ? 'Got it ✓ Future payments too' : (r.error || 'Couldn’t save')); if (r.ok) sync(); }).catch(() => toast('No connection'));
+    api('setCategory', { merchant, category: b.dataset.c }).then(r => { toast(r.ok ? 'Got it Future payments too' : (r.error || 'Couldn’t save')); if (r.ok) sync(); }).catch(() => toast('No connection'));
   });
   document.body.appendChild(sheet);
 }
@@ -710,7 +707,7 @@ function analysisView(d) {
 
     ${mk.length ? `<h1>Month by month</h1><div class="card"><table class="mtab"><tr><th>Month</th><th>In</th><th>Out</th><th>Net</th></tr>
       ${mk.map(k => { const [i, o] = months[k]; return `<tr><td>${new Date(k + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</td><td class="credit">${inrK(i)}</td><td class="debit">${inrK(o)}</td><td class="${i - o >= 0 ? 'credit' : 'debit'}">${i - o >= 0 ? '+' : '−'}${inrK(Math.abs(i - o)).replace('−', '')}</td></tr>`; }).join('')}</table></div>` : ''}
-    ${d.unparsed ? `<p class="note">⚠️ ${d.unparsed} message(s) couldn't be read. See the “Unparsed” tab in the Sheet.</p>` : ''}`;
+    ${d.unparsed ? `<p class="note">${d.unparsed} message(s) couldn't be read. See the “Unparsed” tab in the Sheet.</p>` : ''}`;
 }
 function wireAnalysis() {}
 
@@ -730,9 +727,9 @@ function settingsView(d) {
     <div class="card">${(() => { const st = d.status || {}, H = 3600000;
       const sms = st.lastSms ? Date.now() - new Date(st.lastSms) : null, gm = st.lastScan ? Date.now() - new Date(st.lastScan) : null;
       const row = (ok, name, text) => `<div class="conn"><span class="dot" style="background:${ok ? 'var(--good)' : 'var(--warn)'}"></span><div class="grow"><div>${name}</div><div class="sub">${text}</div></div></div>`;
-      return row(sms !== null && sms < 7 * 24 * H, '💬 Bank SMS (iPhone Shortcut)', st.lastSms ? 'last text received ' + ago(st.lastSms) + (st.lastSmsResult ? ' · ' + st.lastSmsResult : '') : 'nothing received yet — check the Shortcuts automation') +
-             row(gm !== null && gm < H, '✉️ Bank emails (Gmail)', st.lastScan ? 'last checked ' + ago(st.lastScan) : 'not checked yet') +
-             row(true, '🔄 This app', 'synced ' + (SYNCED ? ago(new Date(SYNCED).toISOString()) : 'never') + ' · pull down anywhere to refresh'); })()}</div>
+      return row(sms !== null && sms < 7 * 24 * H, 'Bank SMS (iPhone Shortcut)', st.lastSms ? 'last text received ' + ago(st.lastSms) + (st.lastSmsResult ? ' · ' + st.lastSmsResult : '') : 'nothing received yet — check the Shortcuts automation') +
+             row(gm !== null && gm < H, 'Bank emails (Gmail)', st.lastScan ? 'last checked ' + ago(st.lastScan) : 'not checked yet') +
+             row(true, 'This app', 'synced ' + (SYNCED ? ago(new Date(SYNCED).toISOString()) : 'never') + ' · pull down anywhere to refresh'); })()}</div>
     <h1>Bank balances</h1>
     <div class="card">
       ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
@@ -781,7 +778,7 @@ function saveSettings() {
     btn.disabled = false; btn.textContent = 'Save';
     if (!r.ok) { msg.textContent = r.error || 'Couldn’t save'; return; }
     if (newPin) { PIN = newPin; store.set('pin', PIN); }
-    toast('Saved ✓'); sync();
+    toast('Saved'); sync();
   }).catch(e => { btn.disabled = false; btn.textContent = 'Save'; msg.textContent = 'No connection. Try again.'; });
 }
 
@@ -799,7 +796,7 @@ function addManual() {
   if (!text) return;
   api('add', { text }).then(r => {
     r = r.result || r;
-    document.getElementById('manualMsg').textContent = { added:'Added ✓', duplicate:'Already had that one', skipped:'Not a transaction (OTP/notice)', unparsed:"Couldn't read it. Saved to Unparsed" }[r] || r;
+    document.getElementById('manualMsg').textContent = { added:'Added', duplicate:'Already had that one', skipped:'Not a transaction (OTP/notice)', unparsed:"Couldn't read it. Saved to Unparsed" }[r] || r;
     if (r === 'added') setTimeout(sync, 600);
   });
 }

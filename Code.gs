@@ -6,7 +6,7 @@
  */
 
 const CONFIG = {
-  // PIN, budget, category limits and big-payment size are set inside the app (⚙️ Settings).
+  // PIN, budget, category limits and big-payment size are set inside the app (Settings).
   // The values below are only the starting defaults.
   // Gmail search for bank alert emails. Add your bank's sender if you like, e.g. from:alerts@hdfcbank.net
   GMAIL_QUERY: 'newer_than:3d (debited OR credited OR spent OR "has been used" OR withdrawn)',
@@ -292,6 +292,7 @@ function doPost(e) {
   if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
   if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
+  if (body.action === 'brief') return ContentService.createTextOutput(brief_()).setMimeType(ContentService.MimeType.TEXT);
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
@@ -302,6 +303,11 @@ function doPost(e) {
   lock.waitLock(20000);
   try {
     const result = ingest_(body.text || '', body.source || 'sms');
+    // Optional: Apple Intelligence in the Shortcut can send {merchant, category}; remember it for next time
+    if (body.merchant && body.category && CATEGORIES.indexOf(body.category) >= 0) {
+      const p = parseBankMessage(body.text || ''), m = (p && !p.skip && p.merchant) || body.merchant;
+      if (categorize_(m, '', customCategories_()) === 'Other') { const pin = PropertiesService.getScriptProperties().getProperty('PIN'); setCategory(pin, m, body.category); }
+    }
     // keep the last 10 arrivals (time, result, first 120 chars) so problems can be seen in the health check
     const props = PropertiesService.getScriptProperties();
     let log = []; try { log = JSON.parse(props.getProperty('INBOX_LOG') || '[]'); } catch (e) {}
@@ -505,7 +511,7 @@ function importHistory() {
       if (!threads.length) {
         props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED');
         ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'importHistory').forEach(t => ScriptApp.deleteTrigger(t));
-        Logger.log('✅ Import finished. Added ' + added + ' transactions from your old emails.');
+        Logger.log('Import finished. Added ' + added + ' transactions from your old emails.');
         return;
       }
       const items = [];
@@ -518,7 +524,7 @@ function importHistory() {
   } finally { lock.releaseLock(); }
   // Not done yet: continue in a minute.
   if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'importHistory')) ScriptApp.newTrigger('importHistory').timeBased().everyMinutes(1).create();
-  Logger.log('⏳ Still importing. It carries on by itself every minute. You can close this.');
+  Logger.log('Still importing. It carries on by itself every minute. You can close this.');
 }
 
 /** Clears the imported emails and reads them again with the latest reader. SMS & manual rows are kept. */
@@ -539,6 +545,31 @@ function rebuildFromEmails() {
   const props = PropertiesService.getScriptProperties();
   props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED'); props.deleteProperty('SEEN');
   importHistory();
+}
+
+/** Plain-text money summary for Apple Intelligence ("Use Model" in Shortcuts). Short enough for an on-device model. */
+function brief_() {
+  const d = getSummaryCached_(), tz = CONFIG.TIMEZONE, f = x => '₹' + Math.round(x).toLocaleString('en-IN');
+  const now = Date.now(), DAY = 86400000;
+  const lines = [];
+  lines.push('Today: ' + Utilities.formatDate(new Date(), tz, 'EEE d MMM yyyy, h:mm a') + ' (India).');
+  const fresh = d.accounts.filter(a => a.kind === 'bank' && a.balance !== null && a.balanceAt && now - new Date(a.balanceAt) < 45 * DAY);
+  lines.push('Bank balances: ' + (fresh.map(a => a.name + ' ' + f(a.balance)).join(', ') || 'unknown') + '. Total ' + f(fresh.reduce((s, a) => s + a.balance, 0)) + '.');
+  lines.push('This month: spent ' + f(d.spent) + ' of budget ' + f(d.budget) + ', received ' + f(d.received) + ', spent today ' + f(d.spentToday) + ', safe to spend ' + f(d.safeToSpendPerDay) + '/day, month-end forecast ' + f(d.projected) + '. Same point last month: ' + f(d.lastMonthSoFar) + '.');
+  lines.push('This month by category: ' + d.categories.map(c => c.name + ' ' + f(c.value) + (c.last ? ' (last month ' + f(c.last) + ')' : '') + (c.limit ? ' [limit ' + f(c.limit) + ']' : '')).join('; ') + '.');
+  lines.push('Top places this month: ' + d.merchants.map(m => m.name + ' ' + f(m.value)).join('; ') + '.');
+  const h = d.history || [], m3 = h.filter(t => now - t[0] < 92 * DAY);
+  const byMonth = {}; h.filter(t => now - t[0] < 366 * DAY).forEach(t => { const k = Utilities.formatDate(new Date(t[0]), tz, 'MMM yyyy'); byMonth[k] = byMonth[k] || [0, 0]; byMonth[k][t[2] ? 0 : 1] += t[3]; });
+  lines.push('Last 12 months (in / out): ' + Object.entries(byMonth).map(([k, v]) => k + ' ' + f(v[0]) + ' / ' + f(v[1])).join('; ') + '.');
+  lines.push('Alerts: ' + (d.alerts.map(a => a.text).join(' ') || 'none') + '.');
+  lines.push('Last 40 payments (date, in/out, amount, to/from, category, bank):');
+  h.slice(-40).reverse().forEach(t => lines.push('- ' + Utilities.formatDate(new Date(t[0]), tz, 'd MMM h:mma') + ', ' + (t[2] ? 'IN' : 'OUT') + ' ' + f(t[3]) + ', ' + (t[4] || '?') + ', ' + t[6] + ', ' + t[1]));
+  lines.push('3-month spending total: ' + f(m3.filter(t => !t[2]).reduce((s, t) => s + t[3], 0)) + '.');
+  return lines.join('\n');
+}
+function getSummaryCached_() {
+  const pin = PropertiesService.getScriptProperties().getProperty('PIN');
+  return pin ? getSummary(pin) : buildSummary_();
 }
 
 /** Called by the dashboard. The result is cached so repeat syncs are fast; any change clears it. */
@@ -572,11 +603,11 @@ function dailyCheck() {
     `Spent this month: ${inr(d.spent)} of ${inr(d.budget)}`,
     `Today: ${inr(d.spentToday)} · Safe to spend: ${inr(d.safeToSpendPerDay)}/day`,
     '',
-    ...serious.map(a => (a.level === 'critical' ? '🔴 ' : '🟠 ') + a.text),
+    ...serious.map(a => a.text),
     '',
     'Open your Money app for details: ' + ScriptApp.getService().getUrl(),
   ].join('\n');
-  MailApp.sendEmail(Session.getEffectiveUser().getEmail(), `💸 Money alert: ${serious[0].text.slice(0, 60)}`, body);
+  MailApp.sendEmail(Session.getEffectiveUser().getEmail(), `Money alert: ${serious[0].text.slice(0, 60)}`, body);
 }
 
 /** You corrected a payment in the app: remember it for this place from now on. */
