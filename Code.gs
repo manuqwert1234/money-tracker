@@ -423,4 +423,12 @@ function setup() {
   Logger.log('Your secret token for the iPhone Shortcut:  ' + props.getProperty('SECRET'));
 }
 
+
+
+/** Forgot your PIN? Run this from the editor (Run ▸ resetPin). Next time you open the app it asks you to create a new one. */
+function resetPin() {
+  PropertiesService.getScriptProperties().deleteProperty('PIN');
+  Logger.log('PIN cleared. Open the app now and create a new PIN.');
+}
+
 if (typeof module !== 'undefined') module.exports = { parseBankMessage, categorize_ };
