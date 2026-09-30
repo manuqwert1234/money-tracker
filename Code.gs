@@ -26,10 +26,10 @@ const CATEGORIES = ['Food & drinks', 'Online delivery', 'Shopping', 'Transport',
 const CATEGORY_RULES = [
   // quick-commerce & grocery delivery apps (checked before food so "Swiggy Instamart" isn't "Food")
   ['Online delivery', /blinkit|grofers|zepto|instamart|swiggy ?insta|bigbasket|bbnow|bb ?daily|dunzo|jiomart|flipkart ?minutes|amazon ?fresh|amazon ?now|milkbasket|country ?delight|licious|freshtohome|kpn ?fresh|porter\b|swiggy ?genie|zomato ?hyperpure/i],
-  ['Food & drinks', /swiggy|bundl|zomato|eatsure|eatclub|box8|faasos|behrouz|restaurant|resto|cafe|café|\bchai\b|\btea\b|coffee|bakery|bakes|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|chaayos|haldiram|\bfoods?\b|canteen|\bmess\b|hotel|dhaba|\bgrand\b|kitchen|juice|ice ?cream|sweets|\bbar\b|pub|brew|itc\b|evergreen fo/i],
+  ['Food & drinks', /swiggy|bundl|zomato|eatsure|eatclub|box8|faasos|behrouz|restaurant|resto|cafe|café|\bchai\b|\btea\b|coffee|bakery|bakes|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|chaayos|haldiram|\bfoods?\b|canteen|\bmess\b|hotel|dhaba|\bgrand\b|kitchen|juice|ice ?cream|sweets|\bbar\b|pub|brew|\bitc\b|evergreen fo/i],
   ['Shopping', /amazon|amzn|flipkart|myntra|ajio|meesho|nykaa|croma|reliance ?digital|decathlon|ikea|lenskart|tata ?cliq|snapdeal|zara|h ?& ?m\b|uniqlo|louis ?philip|van ?heusen|allen ?solly|peter ?england|max ?fashion|westside|pantaloons|lifestyle|\bmall\b|apple ?store|boat|noise/i],
   ['Transport', /uber|\bola\b|olacabs|rapido|namma ?yatri|bluesmart|\bmetro\b|metropolitan|bmrcl|kmrl|irctc|railway|redbus|abhibus|petrol|fuel|hpcl|iocl|bpcl|indian ?oil|\bshell\b|fastag|parking|bmtc|ksrtc|makemytrip|goibibo|ixigo|indigo|air ?india|akasa|vistara|\bcabs?\b|\bauto\b|yulu|bounce/i],
-  ['Bills & subscriptions', /airtel|\bjio\b|^vi\b|vodafone|bsnl|recharge|electricity|bescom|kseb|tneb|msedcl|\bwater\b|\bgas\b|indane|bharat ?gas|broadband|act ?fibernet|\bdth\b|tata ?play|insurance|\blic\b|\brent\b|society|\bemi\b|\baws\b|google|apple\.com|icloud|netflix|hotstar|spotify|prime ?video|youtube|sonyliv|zee5|jiocinema|bookmyshow|pvr|inox|openai|chatgpt|claude|anthropic|github|notion|canva|microsoft|adobe|steam|playstation|xbox|dream11/i],
+  ['Bills & subscriptions', /airtel|\bjio\b|^vi\b|vodafone|bsnl|recharge|electricity|bescom|kseb|tneb|msedcl|\bwater\b|\bgas\b|indane|bharat ?gas|broadband|act ?fibernet|\bdth\b|tata ?play|insurance|\blic\b|\brent\b|society|\bemi\b|\baws\b|google|apple\.com|icloud|netflix|hotstar|spotify|prime ?video|youtube|sonyliv|zee5|jiocinema|bookmyshow|pvr|inox|openai|chatgpt|claude|anthropic|github|notion|canva|microsoft|adobe|steam|playstation|xbox|dream11|tuition|college|school|university|academy|coaching|\bfees?\b|course|udemy|coursera/i],
   ['Health', /pharma|medical|medicals|apollo|medplus|1mg|pharmeasy|netmeds|hospital|clinic|doctor|dental|diagnostic|\blabs?\b|cult\.?fit|\bgym\b|fitness/i],
   ['Local shops', /\bstor(e|es)?\b|\bstor\b|mart\b|traders|enterprises|agencies|general|provision|kirana|supermarket|vendolite|vending|paytmqr|bharatpe|\bq\d{6,}@|vyapar|gpay-\d|okbizaxis|\.bharatpe|pinelabs|\bshop\b|bakery ?&|textiles|stationery|xerox|dmart|ratnadeep|more ?retail|spar\b|reliance ?smart/i],
 ];
@@ -43,7 +43,7 @@ function categorize_(merchant, message, custom) {
   for (const [kw, cat] of custom) if (kw && low.includes(kw)) return cat;          // your corrections first
   for (const [cat, re] of CATEGORY_RULES) if (re.test(m)) return cat;
   if (!m) { for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat; return /\batm\b|cash withdrawal/i.test(message || '') ? 'Other' : 'Other'; }
-  if (/\b(pvt|ltd|limited|tech(nologies)?|services|solutions|retail|payments?|llp|corp|india)\b/i.test(m)) return 'Other';
+  if (/\b(pvt|ltd|limited|tech(no|nologies)?|services|solutions|retail|payments?|llp|corp|india|infotech|systems|labs|ventures|enterprises?)\b/i.test(m)) return 'Other';
   if (PERSON_RE.test(m)) return 'People';
   return 'Other';
 }

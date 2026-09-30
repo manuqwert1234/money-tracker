@@ -71,6 +71,17 @@
   @keyframes flash { 0%, 30% { background:color-mix(in srgb, var(--bar) 22%, transparent); } 100% { background:transparent; } }
   .conn { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
   .conn:last-child { border-bottom:0; } .conn .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .mc-hero { font-size:38px; font-weight:750; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1; }
+  .mc-sub { font-size:14px; font-weight:600; margin-top:2px; min-height:20px; } .mc-sub span { color:var(--muted); font-weight:400; }
+  .mc-chart { position:relative; margin:12px -4px 0; touch-action:pan-y; user-select:none; -webkit-user-select:none; }
+  .mc-chart svg { display:block; overflow:visible; }
+  .mc-now { width:auto; margin:0; padding:4px 10px; font-size:13px; border-radius:14px; background:var(--track); color:var(--text); }
+  .kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .kpi .sub { font-size:12px; } .kpi .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .rec { display:flex; gap:12px; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); } .rec:last-child { border-bottom:0; }
+  .mtab { width:100%; border-collapse:collapse; font-size:14px; font-variant-numeric:tabular-nums; }
+  .mtab td, .mtab th { padding:7px 0; border-bottom:1px solid var(--line); text-align:right; } .mtab td:first-child, .mtab th:first-child { text-align:left; }
+  .mtab th { color:var(--muted); font-weight:500; font-size:12px; }
   * { box-sizing:border-box; }
   html { background:var(--bg); }
   body { margin:0 auto; background:var(--bg); color:var(--text); font:16px -apple-system, system-ui, sans-serif; max-width:560px;
@@ -145,7 +156,7 @@
 <nav id="nav" hidden>
   <button data-t="home" onclick="setTab('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
   <button data-t="spend" onclick="setTab('spend')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>Spending</button>
-  <button data-t="money" onclick="setTab('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>History</button>
+  <button data-t="money" onclick="setTab('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Analysis</button>
   <button data-t="settings" onclick="setTab('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </nav>
 
@@ -273,13 +284,14 @@ function render() {
   const app = document.getElementById('app'), nav = document.getElementById('nav');
   app.hidden = false; nav.hidden = false;
   nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
-  const title = { home: 'Money', spend: 'Spending', money: 'History', settings: 'Settings' }[TAB];
+  const title = { home: 'Money', spend: 'Spending', money: 'Analysis', settings: 'Settings' }[TAB];
   app.innerHTML = `
     <header><div class="title">${title}</div><button id="sync" class="sync" onclick="sync()"><span class="dot"></span><span></span></button></header>
-    <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : TAB === 'settings' ? settingsView(d) : moneyView(d)}</div>`;
+    <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : TAB === 'settings' ? settingsView(d) : analysisView(d)}</div>`;
   paintSync();
   if (TAB === 'spend') wireChart(d);
-  if (TAB === 'money') wireHistory(d);
+  if (TAB === 'money') wireAnalysis(d);
+  if (TAB === 'home') wireMoney(d);
 }
 
 // ───────── Home tab ─────────
@@ -287,7 +299,7 @@ function homeView(d) {
   const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0;
   const top = d.alerts[0];
   return `
-    ${bankCard(d)}
+    ${moneyChart(d)}${bankList(d)}
     ${top ? `<div class="alert ${top.level}" onclick="setTab('spend')"><b>${ICON[top.level]}</b><span>${esc(top.text)}${d.alerts.length > 1 ? ` <u>+${d.alerts.length - 1} more</u>` : ''}</span></div>` : ''}
     <div class="card" onclick="setTab('spend')">
       <div style="display:flex;justify-content:space-between"><span class="sub">Spent this month</span><span class="sub">${inr(Math.max(0, d.budget - d.spent))} left</span></div>
@@ -505,120 +517,202 @@ function banks(d) {
 const short = n => n.replace(/ A\/c /, ' ');
 const inrK = v => { const a = Math.abs(v); return (v < 0 ? '−' : '') + '₹' + (a >= 1e5 ? (a / 1e5).toFixed(a >= 1e6 ? 0 : 1) + 'L' : a >= 1000 ? (a / 1000).toFixed(a >= 1e4 ? 0 : 1) + 'k' : Math.round(a)); };
 
-function bankCard(d) {
-  // Only balances from the last 45 days count. An old balance (e.g. a year-old HDFC message) would make the total wrong.
+// ───────── Money timeline (Home, Apple Stocks-style) ─────────
+const RANGES = { '1W': 7, '1M': 30, '3M': 91, '1Y': 365, 'All': 0 };
+let MR = store.get('mr') || '1M', SCRUB = null;
+function setMR(r) { MR = r; SCRUB = null; store.set('mr', r); render(); }
+const delta = t => t[2] ? t[3] : -t[3];
+const r2c = x => Math.round(x * 100) / 100;
+
+// Total balance over time, rebuilt BACKWARDS from today's balance through every payment,
+// so it's right even for banks that never print a balance. pts = [time, balance after that moment]
+function totalSeries(d, acct) {
+  const B = banks(d).filter(b => b.balance !== null && !b.stale && (!acct || acct === 'all' || b.name === acct));
+  const names = new Set(B.map(b => b.name));
+  const now = B.reduce((s, b) => s + b.balance, 0);
+  const tx = (d.history || []).filter(t => names.has(t[1])).sort((a, b) => a[0] - b[0]);
+  const pts = []; let after = now;
+  for (let i = tx.length - 1; i >= 0; i--) { pts.push([tx[i][0], r2c(after)]); after -= delta(tx[i]); }
+  pts.push([-Infinity, r2c(after)]); pts.reverse();
+  return { pts, now: r2c(now), names, first: tx.length ? tx[0][0] : Date.now() };
+}
+function valueAt(S, T) { let lo = 0, hi = S.pts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S.pts[m][0] <= T) lo = m; else hi = m - 1; } return S.pts[lo][1]; }
+function rangeFrom(days, S) { return days ? Date.now() - days * DAY : Math.max(S.first - DAY, Date.now() - 5 * 365 * DAY); }
+// bars: day for 1W/1M, week for 3M, month for 1Y/All
+function buckets(from, to, unit) {
+  const out = []; let c = new Date(from); c.setHours(0, 0, 0, 0);
+  if (unit === 'week') c.setDate(c.getDate() - ((c.getDay() + 6) % 7));
+  if (unit === 'month') c = new Date(c.getFullYear(), c.getMonth(), 1);
+  while (+c < to) {
+    const s = +c;
+    if (unit === 'day') c.setDate(c.getDate() + 1); else if (unit === 'week') c.setDate(c.getDate() + 7); else c = new Date(c.getFullYear(), c.getMonth() + 1, 1);
+    out.push({ s, e: +c });
+  }
+  return out;
+}
+const unitFor = r => r === '1W' || r === '1M' ? 'day' : r === '3M' ? 'week' : 'month';
+const bucketLabel = (b, unit, long) => unit === 'month' ? new Date(b.s).toLocaleDateString('en-IN', long ? { month: 'long', year: 'numeric' } : { month: 'short' })
+  : unit === 'week' ? 'Week of ' + new Date(b.s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+  : new Date(b.s).toLocaleDateString('en-IN', long ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' });
+const money = v => v < 0 ? '−' + inr(-v) : inr(v);
+
+function moneyChart(d) {
+  const S = totalSeries(d, 'all');
+  const from = rangeFrom(RANGES[MR], S), start = valueAt(S, from), ch = S.now - start;
+  const unit = unitFor(MR), B = buckets(from, Date.now(), unit);
+  let hero = money(S.now), sub = S.names.size ? `<span class="${ch >= 0 ? 'credit' : 'debit'}">${ch >= 0 ? '▲' : '▼'} ${inr(Math.abs(ch))}${start > 0 ? ` (${Math.abs(Math.round(ch / start * 100))}%)` : ''}</span> <span>${MR === 'All' ? 'all time' : 'past ' + { '1W': 'week', '1M': 'month', '3M': '3 months', '1Y': 'year' }[MR]}</span>` : '<span>Set a balance in Settings to see this chart</span>';
+  let list = '';
+  if (SCRUB) {
+    const b = B[SCRUB.i]; if (b) {
+      const bt = (d.history || []).filter(t => t[0] >= b.s && t[0] < b.e);
+      const out = bt.filter(t => !t[2]).reduce((s, t) => s + t[3], 0), inn = bt.filter(t => t[2]).reduce((s, t) => s + t[3], 0);
+      hero = money(valueAt(S, Math.min(b.e - 1, Date.now())));
+      sub = `<span>${bucketLabel(b, unit, true)}</span> · <span class="debit">−${inr(out)}</span>${inn ? ` · <span class="credit">+${inr(inn)}</span>` : ''}`;
+      list = bt.length ? `<div class="card" style="margin-top:10px">${bt.slice().reverse().slice(0, 12).map(histRow).join('')}${bt.length > 12 ? `<p class="note">+${bt.length - 12} more</p>` : ''}</div>` : '';
+    }
+  }
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center"><span class="sub">${SCRUB ? 'Money in bank then' : 'Money in bank'}</span>${SCRUB ? `<button class="mc-now" onclick="SCRUB=null;render()">Now</button>` : ''}</div>
+    <div class="mc-hero ${S.now < 0 && !SCRUB ? 'debit' : ''}" id="mcHero">${hero}</div>
+    <div class="mc-sub" id="mcSub">${sub}</div>
+    <div class="mc-chart" id="mcChart"></div>
+    <div class="seg" style="margin:10px 0 0">${Object.keys(RANGES).map(r => `<button class="${MR === r ? 'on' : ''}" onclick="setMR('${r}')">${r}</button>`).join('')}</div>
+  </div>${list}`;
+}
+
+function bankList(d) {
   const all = banks(d).filter(b => b.balance !== null);
-  const B = all.filter(b => !b.stale), old = all.filter(b => b.stale);
-  const total = B.reduce((s, b) => s + b.balance, 0);
-  if (!all.length) return `<div class="card"><div class="sub">Money in bank</div><div class="hero">—</div><div class="sub">Waiting for a message that shows your balance</div></div>`;
-  return `<div class="card" onclick="setTab('money')">
-    <div class="sub">Money in bank</div><div class="hero ${total < 0 ? 'debit' : ''}">${total < 0 ? '−' + inr(-total) : inr(total)}</div>
-    ${B.filter(b => b.balance > 0).length > 1 ? `<div class="stack">${B.filter(b => b.balance > 0).map(b => `<div style="flex:${b.balance};background:${b.color}"></div>`).join('')}</div>` : ''}
-    ${B.map(b => `<div class="row"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-      <div class="sub">${b.manual ? 'you set it ' + ago(b.updated) : 'bank said ' + ago(b.updated)}${b.estimated ? ' · + payments since' : ''}</div></div></div>
-      <div class="amt ${b.balance < 0 ? 'debit' : ''}">${b.balance < 0 ? '−' + inr(-b.balance) : inr(b.balance)}</div></div>`).join('')}
-    ${old.map(b => `<div class="row" style="opacity:.5"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-      <div class="sub">bank last said this in ${new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · not counted · <u onclick="event.stopPropagation();setTab('settings')">set it</u></div></div></div>
-      <div class="amt">${inr(b.balance)}</div></div>`).join('')}
-  </div>`;
+  if (!all.length) return '';
+  return `<div class="card">${all.map(b => `<div class="row" style="${b.stale ? 'opacity:.5' : ''}"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
+    <div class="sub">${b.stale ? 'bank last said this in ' + new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) + ' · not counted · <u onclick="event.stopPropagation();setTab(\'settings\')">set it</u>' : (b.manual ? 'you set it ' : 'bank said ') + ago(b.updated) + (b.estimated ? ' · + payments since' : '')}</div></div></div>
+    <div class="amt ${b.balance < 0 ? 'debit' : ''}">${money(b.balance)}</div></div>`).join('')}</div>`;
 }
 
-// ───────── History tab ─────────
-let H_ACCT = 'all', H_RANGE = 36, H_MONTH = null;
-function hFilter(d) {
-  const from = Date.now() - H_RANGE * 30.4 * DAY;
-  return (d.history || []).filter(t => t[0] >= from && (H_ACCT === 'all' || t[1] === H_ACCT));
+function wireMoney(d) {
+  const el = document.getElementById('mcChart'); if (!el) return;
+  const S = totalSeries(d, 'all'), now = Date.now(), from = rangeFrom(RANGES[MR], S);
+  const unit = unitFor(MR), B = buckets(from, now, unit);
+  const W = el.clientWidth || 330, HL = 150, GAP = 14, HB = 54, H = HL + GAP + HB + 16;
+  // balance line (step: the balance stays until the next payment)
+  const inRange = S.pts.filter(p => p[0] > from && p[0] <= now);
+  const pts = [[from, valueAt(S, from)], ...inRange, [now, S.now]];
+  let lo = Math.min(...pts.map(p => p[1])), hi = Math.max(...pts.map(p => p[1]));
+  if (hi - lo < 1) { hi += 1; lo -= 1; } const pad = (hi - lo) * .12; lo -= pad; hi += pad;
+  const x = t => (t - from) / (now - from) * W, y = v => 6 + (hi - v) / (hi - lo) * (HL - 12);
+  let path = `M0,${y(pts[0][1])}`; for (let i = 1; i < pts.length; i++) path += `H${x(pts[i][0]).toFixed(1)}V${y(pts[i][1]).toFixed(1)}`;
+  const up = S.now >= pts[0][1], col = up ? 'var(--good)' : 'var(--crit)';
+  const area = path + `V${HL}H0Z`;
+  const zero = lo < 0 && hi > 0 ? `<line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="2 3" opacity=".6"/><text x="${W}" y="${y(0) - 3}" text-anchor="end">₹0</text>` : '';
+  // spending bars under it, same time axis
+  const spend = B.map(b => (d.history || []).filter(t => !t[2] && t[0] >= b.s && t[0] < b.e).reduce((s, t) => s + t[3], 0));
+  const smax = Math.max(1, ...spend), bw = Math.max(1.5, W / B.length - (B.length > 40 ? 1 : 3));
+  const by0 = HL + GAP + HB;
+  let bars = '';
+  B.forEach((b, i) => { const h = spend[i] / smax * HB, bx = x(b.s) + (W / B.length - bw) / 2, r = Math.min(3, bw / 2, h);
+    if (h > .5) bars += `<path d="M${bx},${by0}V${by0 - h + r}q0,-${r} ${r},-${r}H${bx + bw - r}q${r},0 ${r},${r}V${by0}Z" fill="var(--out)" opacity="${SCRUB && SCRUB.i !== i ? .35 : .9}"/>`; });
+  // time labels (3-4 of them)
+  let labels = ''; const nL = 4;
+  for (let k = 0; k < nL; k++) { const t = from + (now - from) * (k + .5) / nL;
+    labels += `<text x="${x(t)}" y="${H - 2}" text-anchor="middle">${new Date(t).toLocaleDateString('en-IN', MR === '1Y' || MR === 'All' ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' })}</text>`; }
+  const sx = SCRUB ? x(Math.min(B[SCRUB.i] ? B[SCRUB.i].e - 1 : now, now)) : null;
+  el.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="Money in bank over time, with spending per ${unit} below">
+    <defs><linearGradient id="mcg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${up ? '#1a7f37' : '#c62828'}" stop-opacity=".22"/><stop offset="1" stop-color="${up ? '#1a7f37' : '#c62828'}" stop-opacity="0"/></linearGradient></defs>
+    <text x="${W}" y="12" text-anchor="end">${inrK(hi - pad)}</text><text x="${W}" y="${HL - 4}" text-anchor="end">${inrK(lo + pad)}</text>
+    ${S.names.size ? `<path d="${area}" fill="url(#mcg)"/><path d="${path}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>` : ''}${zero}
+    <text x="0" y="${HL + GAP - 2}">spent per ${unit} · max ${inrK(smax)}</text>
+    ${bars}${labels}
+    ${sx !== null ? `<line x1="${sx}" x2="${sx}" y1="0" y2="${by0}" stroke="var(--text)" stroke-width="1" opacity=".5"/><circle cx="${sx}" cy="${y(valueAt(S, Math.min(B[SCRUB.i].e - 1, now)))}" r="5" fill="${col}" stroke="var(--card)" stroke-width="2"/>` : ''}
+    <rect id="mcHit" x="0" y="0" width="${W}" height="${H}" fill="transparent"/></svg>`;
+  // drag your finger across it
+  const hit = document.getElementById('mcHit');
+  const pick = ev => { const r = hit.getBoundingClientRect(), cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+    const t = from + Math.max(0, Math.min(W, cx)) / W * (now - from); const i = B.findIndex(b => t >= b.s && t < b.e);
+    if (i >= 0 && (!SCRUB || SCRUB.i !== i)) { SCRUB = { i }; const y0 = scrollY; render(); scrollTo(0, y0); } };
+  hit.addEventListener('click', pick); hit.addEventListener('mousemove', e => { if (e.buttons) pick(e); });
+  hit.addEventListener('touchmove', e => { pick(e); e.preventDefault(); }, { passive: false });
+  hit.addEventListener('touchstart', pick, { passive: true });
 }
-function setH(k, v) { if (k === 'a') H_ACCT = v; if (k === 'r') H_RANGE = v; if (k === 'm') H_MONTH = v; if (k !== 'm') H_MONTH = null; render(); }
 
-function moneyView(d) {
-  const B = banks(d);
-  const tx = hFilter(d);
-  const out = tx.filter(t => !t[2]).reduce((s, t) => s + t[3], 0), inn = tx.filter(t => t[2]).reduce((s, t) => s + t[3], 0);
-  const chip = (k, v, label, on, color) => `<button class="${on ? 'on' : ''}" onclick="setH('${k}', ${typeof v === 'string' ? `'${v}'` : v})">${color ? `<span class="sw" style="background:${color}"></span>` : ''}${label}</button>`;
+// ───────── Analysis tab ─────────
+let A_ACCT = 'all', A_RANGE = store.get('ar') || '3M';
+function setA(k, v) { if (k === 'a') A_ACCT = v; else { A_RANGE = v; store.set('ar', v); } render(); }
+
+// Payments to the same place at a steady rhythm (weekly / monthly) with similar amounts
+function recurring(tx) {
+  const g = {}; tx.filter(t => !t[2] && t[4]).forEach(t => (g[t[4]] = g[t[4]] || []).push(t));
+  const out = [];
+  for (const [name, a] of Object.entries(g)) {
+    if (a.length < 3) continue;
+    a.sort((p, q) => p[0] - q[0]);
+    const gaps = a.slice(1).map((t, i) => (t[0] - a[i][0]) / DAY).sort((p, q) => p - q), gap = gaps[gaps.length >> 1];
+    const amts = a.map(t => t[3]).sort((p, q) => p - q), amt = amts[amts.length >> 1];
+    const steady = a.filter(t => Math.abs(t[3] - amt) <= Math.max(10, amt * .25)).length >= a.length * .7;
+    const kind = gap >= 26 && gap <= 35 ? 'monthly' : gap >= 6 && gap <= 8 ? 'weekly' : gap >= 85 && gap <= 95 ? 'every 3 months' : gap >= 355 && gap <= 375 ? 'yearly' : null;
+    const last = a[a.length - 1][0];
+    if (kind && steady && Date.now() - last < gap * 2.2 * DAY) out.push({ name, amt, kind, next: last + gap * DAY, n: a.length, cat: catOf(a[0][6]) });
+  }
+  return out.sort((p, q) => q.amt - p.amt);
+}
+
+function analysisView(d) {
+  const B = banks(d), all = (d.history || []).filter(t => A_ACCT === 'all' || t[1] === A_ACCT);
+  const S = totalSeries(d, A_ACCT), days = RANGES[A_RANGE], from = days ? Date.now() - days * DAY : (all.length ? all[0][0] : Date.now());
+  const span = Math.max(1, (Date.now() - from) / DAY);
+  const tx = all.filter(t => t[0] >= from), prev = days ? all.filter(t => t[0] >= from - days * DAY && t[0] < from) : [];
+  const sum = a => a.reduce((s, t) => s + t[3], 0);
+  const out = sum(tx.filter(t => !t[2])), inn = sum(tx.filter(t => t[2])), net = inn - out;
+  const pOut = sum(prev.filter(t => !t[2]));
+  const perDay = out / span, runway = S.now > 0 && perDay > 0 ? S.now / perDay : null;
+  const chip = (k, v, label, on, color) => `<button class="${on ? 'on' : ''}" onclick="setA('${k}', '${String(v).replace(/'/g, "\\'")}')">${color ? `<span class="sw" style="background:${color}"></span>` : ''}${label}</button>`;
+  const rec = recurring(all);
+  // weekday pattern: average spent on each weekday in the range
+  const wd = [0, 0, 0, 0, 0, 0, 0], wdN = [0, 0, 0, 0, 0, 0, 0];
+  for (let t = +new Date(new Date(from).toDateString()); t < Date.now(); t += DAY) wdN[(new Date(t).getDay() + 6) % 7]++;
+  tx.filter(t => !t[2]).forEach(t => wd[(new Date(t[0]).getDay() + 6) % 7] += t[3]);
+  const wdAvg = wd.map((v, i) => v / Math.max(1, wdN[i])), wdMax = Math.max(1, ...wdAvg), wdTop = wdAvg.indexOf(Math.max(...wdAvg));
+  const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  // month-by-month
+  const months = {}; tx.forEach(t => { const k = new Date(t[0]).toISOString().slice(0, 7); months[k] = months[k] || [0, 0]; months[k][t[2] ? 0 : 1] += t[3]; });
+  const mk = Object.keys(months).sort().reverse().slice(0, 12);
+  const big = tx.filter(t => !t[2]).sort((p, q) => q[3] - p[3]).slice(0, 5);
+  const chg = pOut > 0 ? Math.round((out / pOut - 1) * 100) : null;
   return `
-    <div class="chips">${chip('a', 'all', 'All banks', H_ACCT === 'all')}${B.map(b => chip('a', b.name, esc(short(b.name)), H_ACCT === b.name, b.color)).join('')}</div>
-    <div class="chips">${[[3, '3 months'], [12, '1 year'], [36, '3 years']].map(([v, l]) => chip('r', v, l, H_RANGE === v)).join('')}</div>
-    <div class="two">
-      <div class="card"><div class="sub">Money in</div><div class="big credit">${inr(inn)}</div></div>
-      <div class="card"><div class="sub">Money out</div><div class="big debit">${inr(out)}</div></div>
+    ${B.length > 1 ? `<div class="chips">${chip('a', 'all', 'All banks', A_ACCT === 'all')}${B.map(b => chip('a', b.name, esc(short(b.name)), A_ACCT === b.name, b.color)).join('')}</div>` : ''}
+    <div class="seg">${['1M', '3M', '1Y', 'All'].map(r => `<button class="${A_RANGE === r ? 'on' : ''}" onclick="setA('r','${r}')">${r}</button>`).join('')}</div>
+    <h1>Cash flow</h1>
+    <div class="card"><div class="kpis">
+      <div class="kpi"><div class="sub">Money in</div><div class="v credit">+${inr(inn)}</div></div>
+      <div class="kpi"><div class="sub">Money out</div><div class="v debit">−${inr(out)}</div>${chg !== null ? `<div class="sub ${chg > 0 ? 'debit' : 'credit'}">${chg > 0 ? '▲' : '▼'} ${Math.abs(chg)}% vs previous ${A_RANGE}</div>` : ''}</div>
+      <div class="kpi"><div class="sub">Net</div><div class="v ${net >= 0 ? 'credit' : 'debit'}">${net >= 0 ? '+' : '−'}${inr(Math.abs(net))}</div></div>
+      <div class="kpi"><div class="sub">You kept</div><div class="v">${inn > 0 ? Math.round(net / inn * 100) + '%' : '—'}</div><div class="sub">of what came in</div></div>
     </div>
-    <h1>How much money you had</h1>
-    <div class="card chart"><div id="balChart"></div><div class="legend" id="balLegend"></div><div class="tip sub" id="balTip">Tap the chart to see a date</div></div>
-    <h1>In and out each month</h1>
-    <div class="card chart"><div id="monChart"></div>
-      <div class="legend"><span><span class="sw" style="background:var(--in)"></span>Money in</span><span><span class="sw" style="background:var(--out)"></span>Money out</span></div>
-      <div class="tip sub">Tap a month for details</div></div>
-    <div id="monthDetail">${monthDetail(d, tx)}</div>
+    <div class="stack" style="height:10px;margin-top:14px">${inn + out ? `<div style="flex:${inn};background:var(--in)"></div><div style="flex:${out};background:var(--out)"></div>` : ''}</div>
+    <div class="legend"><span><span class="sw" style="background:var(--in)"></span>In</span><span><span class="sw" style="background:var(--out)"></span>Out</span></div></div>
+
+    <h1>Burn rate</h1>
+    <div class="card"><div class="kpis">
+      <div class="kpi"><div class="sub">Average spend</div><div class="v">${inr(perDay)}</div><div class="sub">per day · ${inr(perDay * 30.4)}/month</div></div>
+      <div class="kpi"><div class="sub">Money lasts</div><div class="v">${runway === null ? '—' : runway > 365 ? '1 yr+' : runway < 1 ? 'under a day' : Math.round(runway) + ' days'}</div><div class="sub">${runway === null ? 'needs a balance' : 'at this rate, no income'}</div></div>
+    </div></div>
+
+    <h1>Which days you spend</h1>
+    <div class="card">
+      <div style="display:flex;gap:6px;align-items:flex-end;height:90px">${wdAvg.map((v, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end">
+        <div style="width:100%;max-width:30px;height:${Math.max(2, v / wdMax * 70)}px;border-radius:4px 4px 0 0;background:${i === wdTop ? 'var(--out)' : 'var(--bar-soft)'}"></div><span class="sub">${names[i][0]}</span></div>`).join('')}</div>
+      <p class="note">${wdMax > 1 ? `You spend most on <b>${['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'][wdTop]}</b>, about ${inr(wdAvg[wdTop])} on average.` : 'Not enough data yet.'}</p>
+    </div>
+
+    ${rec.length ? `<h1>Recurring payments</h1><div class="card">${rec.slice(0, 8).map(r => `<div class="rec"><span class="sw lg" style="background:${CAT_COLOR[r.cat]}"></span>
+      <div class="grow"><div class="ell">${esc(r.name)}</div><div class="sub">${r.kind} · ${r.n} times · next around ${new Date(r.next).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</div></div><div class="amt">${inr(r.amt)}</div></div>`).join('')}
+      <p class="note">About ${inr(rec.reduce((s, r) => s + r.amt * (r.kind === 'weekly' ? 4.3 : r.kind === 'monthly' ? 1 : r.kind === 'yearly' ? 1 / 12 : 1 / 3), 0))} a month goes to these.</p></div>` : ''}
+
+    ${big.length ? `<h1>Biggest payments</h1><div class="card">${big.map(histRow).join('')}</div>` : ''}
+
+    ${mk.length ? `<h1>Month by month</h1><div class="card"><table class="mtab"><tr><th>Month</th><th>In</th><th>Out</th><th>Net</th></tr>
+      ${mk.map(k => { const [i, o] = months[k]; return `<tr><td>${new Date(k + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</td><td class="credit">${inrK(i)}</td><td class="debit">${inrK(o)}</td><td class="${i - o >= 0 ? 'credit' : 'debit'}">${i - o >= 0 ? '+' : '−'}${inrK(Math.abs(i - o)).replace('−', '')}</td></tr>`; }).join('')}</table></div>` : ''}
     ${d.unparsed ? `<p class="note">⚠️ ${d.unparsed} message(s) couldn't be read. See the “Unparsed” tab in the Sheet.</p>` : ''}`;
 }
-
-function monthKey(t) { const x = new Date(t); return x.getFullYear() * 12 + x.getMonth(); }
-function monthName(k, long) { return new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString('en-IN', long ? { month: 'long', year: 'numeric' } : { month: 'short' }); }
-
-function monthDetail(d, tx) {
-  const k = H_MONTH !== null ? H_MONTH : (tx.length ? monthKey(tx[tx.length - 1][0]) : null);
-  if (k === null) return '<p class="note">No transactions in this range yet.</p>';
-  const m = tx.filter(t => monthKey(t[0]) === k);
-  const out = m.filter(t => !t[2]), inn = m.filter(t => t[2]);
-  const sum = a => a.reduce((s, t) => s + t[3], 0);
-  const group = (a, i) => Object.entries(a.reduce((o, t) => (o[t[i] || 'Other'] = (o[t[i] || 'Other'] || 0) + t[3], o), {})).sort((x, y) => y[1] - x[1]);
-  const cats = group(out.map(t => { const x = t.slice(); x[6] = catOf(t[6]); return x; }), 6), places = group(out, 4).slice(0, 5);
-  const max = Math.max(1, ...cats.map(c => c[1]));
-  return `
-    <h1>${monthName(k, true)}</h1>
-    <div class="card">
-      <div class="row"><span>Money in</span><span class="amt credit">+${inr(sum(inn))}</span></div>
-      <div class="row"><span>Money out</span><span class="amt debit">−${inr(sum(out))}</span></div>
-      <div class="row"><span>Net</span><span class="amt">${sum(inn) - sum(out) >= 0 ? '+' : '−'}${inr(Math.abs(sum(inn) - sum(out)))}</span></div>
-    </div>
-    ${cats.length ? `<div class="card">${cats.map(([c, v]) => `<div class="cat"><div class="top"><span>${esc(c)}</span><span class="amt">${inr(v)}</span></div>
-      <div class="pbar"><div style="width:${v / max * 100}%;background:${CAT_COLOR[catOf(c)]}"></div></div></div>`).join('')}</div>` : ''}
-    ${places.length ? `<h1>Top places</h1><div class="card">${places.map(([n, v]) => `<div class="row"><div>${esc(n)}</div><div class="amt">${inr(v)}</div></div>`).join('')}</div>` : ''}
-    <h1>All ${m.length} transaction${m.length === 1 ? '' : 's'}</h1>
-    <div class="card">${m.slice().reverse().map(histRow).join('')}</div>`;
-}
-
-function wireHistory(d) {
-  const tx = hFilter(d), B = banks(d).filter(b => H_ACCT === 'all' || b.name === H_ACCT);
-  // ── Balance lines: one per bank, using the balance printed in each message ──
-  const el = document.getElementById('balChart'), W = el.clientWidth || 320, H = 170, pb = 18, pt = 8;
-  const from = Date.now() - H_RANGE * 30.4 * DAY, to = Date.now();
-  const series = B.map(b => ({ b, pts: tx.filter(t => t[1] === b.name && t[5] !== null).map(t => [t[0], t[5]]) })).filter(s => s.pts.length);
-  const maxV = Math.max(1, ...series.flatMap(s => s.pts.map(p => p[1])));
-  const x = t => (t - from) / (to - from) * W, y = v => H - pb - v / maxV * (H - pb - pt);
-  const grid = [0, .5, 1].map(f => `<line x1="0" x2="${W}" y1="${y(maxV * f)}" y2="${y(maxV * f)}" stroke="var(--grid)"/><text x="0" y="${y(maxV * f) - 3}">${inrK(maxV * f)}</text>`).join('');
-  const ticks = []; for (let k = monthKey(from) + 1; k <= monthKey(to); k++) { const t = new Date(Math.floor(k / 12), k % 12, 1).getTime(); if (H_RANGE <= 3 || (k % 12) % (H_RANGE > 12 ? 6 : 3) === 0) ticks.push(`<text x="${x(t)}" y="${H - 3}" text-anchor="middle">${k % 12 === 0 ? Math.floor(k / 12) : monthName(k)}</text>`); }
-  // step line: balance stays the same until the next message
-  const lines = series.map(s => { let dStr = ''; s.pts.forEach((p, i) => { dStr += (i ? `H${x(p[0])}V${y(p[1])}` : `M${x(p[0])},${y(p[1])}`); }); dStr += `H${x(to)}`;
-    return `<path d="${dStr}" fill="none" stroke="${s.b.color}" stroke-width="2" stroke-linejoin="round"/>`; }).join('');
-  el.innerHTML = series.length ? `<svg width="${W}" height="${H}">${grid}${ticks.join('')}${lines}<line id="cross" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/><rect width="${W}" height="${H}" fill="transparent" id="balHit"/></svg>`
-    : '<p class="note">No balance info in this range.</p>';
-  document.getElementById('balLegend').innerHTML = series.length > 1 ? series.map(s => `<span><span class="sw" style="background:${s.b.color}"></span>${esc(short(s.b.name))}</span>`).join('') : '';
-  const hit = document.getElementById('balHit');
-  if (hit) { const show = ev => { const r = hit.getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left, t = from + px / W * (to - from);
-      const c = document.getElementById('cross'); c.setAttribute('x1', px); c.setAttribute('x2', px); c.setAttribute('visibility', 'visible');
-      document.getElementById('balTip').innerHTML = `<b>${new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</b> · ` +
-        series.map(s => { const p = s.pts.filter(q => q[0] <= t).pop(); return `${esc(short(s.b.name))} ${p ? inr(p[1]) : '—'}`; }).join(' · '); };
-    hit.addEventListener('click', show); hit.addEventListener('mousemove', show); hit.addEventListener('touchmove', e => { show(e); e.preventDefault(); }, { passive: false }); }
-
-  // ── Monthly in (up) / out (down) bars ──
-  const mc = document.getElementById('monChart'), W2 = mc.clientWidth || 320, H2 = 170, mid = 80;
-  const k0 = monthKey(from), k1 = monthKey(to), n = k1 - k0 + 1, gap = 2, bw = Math.max(2, W2 / n - gap);
-  const agg = {}; tx.forEach(t => { const k = monthKey(t[0]); agg[k] = agg[k] || [0, 0]; agg[k][t[2] ? 0 : 1] += t[3]; });
-  // in and out each get their own scale (both labelled), so a salary month doesn't flatten your spending
-  const mxIn = Math.max(1, ...Object.values(agg).map(v => v[0])), mxOut = Math.max(1, ...Object.values(agg).map(v => v[1]));
-  const sel = H_MONTH !== null ? H_MONTH : (tx.length ? monthKey(tx[tx.length - 1][0]) : -1);
-  let bars = `<line x1="0" x2="${W2}" y1="${mid}" y2="${mid}" stroke="var(--grid)"/>`;
-  for (let k = k0; k <= k1; k++) { const bx = (k - k0) * (bw + gap), [i, o] = agg[k] || [0, 0], hi = i / mxIn * (mid - 14), ho = o / mxOut * (H2 - mid - 22), r = Math.min(3, bw / 2);
-    const op = sel === k || sel < 0 ? 1 : .45;
-    if (hi > .5) bars += `<path d="M${bx},${mid - 1}V${mid - hi + r}q0,-${r} ${r},-${r}H${bx + bw - r}q${r},0 ${r},${r}V${mid - 1}Z" fill="var(--in)" opacity="${op}"/>`;
-    if (ho > .5) bars += `<path d="M${bx},${mid + 1}V${mid + ho - r}q0,${r} ${r},${r}H${bx + bw - r}q${r},0 ${r},-${r}V${mid + 1}Z" fill="var(--out)" opacity="${op}"/>`;
-    if (n <= 12 || k % 6 === 0) bars += `<text x="${bx + bw / 2}" y="${H2 - 3}" text-anchor="middle">${k % 12 === 0 && n > 12 ? Math.floor(k / 12) : monthName(k)}</text>`;
-    bars += `<rect class="month" x="${bx - gap / 2}" y="0" width="${bw + gap}" height="${H2}" fill="transparent" onclick="setH('m', ${k})"/>`; }
-  bars += `<text x="0" y="10">in, max +${inrK(mxIn)}</text><text x="0" y="${H2 - 16}">out, max −${inrK(mxOut)}</text>`;
-  mc.innerHTML = `<svg width="${W2}" height="${H2}">${bars}</svg>`;
-}
+function wireAnalysis() {}
 
 // ───────── Settings tab ─────────
 function settingsView(d) {
