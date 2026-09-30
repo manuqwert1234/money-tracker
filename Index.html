@@ -128,20 +128,27 @@ function api(action, extra) {
     else r.withSuccessHandler(x => ok({ ok: true, result: x })).addManual(PIN, extra.text);
   });
   // text/plain keeps it a "simple" request, so Apps Script answers without a CORS preflight
-  return fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                       body: JSON.stringify(Object.assign({ action, pin: PIN }, extra || {})) }).then(r => r.json());
+  // Google sometimes answers with a random "not found" page, so try up to 4 times.
+  const body = JSON.stringify(Object.assign({ action, pin: PIN }, extra || {}));
+  const attempt = n => fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body })
+    .then(r => r.text()).then(t => JSON.parse(t))
+    .catch(e => { if (n >= 3) throw e; return new Promise(ok => setTimeout(ok, 700 * (n + 1))).then(() => attempt(n + 1)); });
+  return attempt(0);
 }
 
 let CREATING = false;
 function unlock() {
   PIN = document.getElementById('pin').value.trim();
+  document.getElementById('err').textContent = CREATING ? '' : 'Opening…';
   if (CREATING) {
     if (!/^\d{4,8}$/.test(PIN)) { document.getElementById('err').textContent = 'Use 4 to 8 digits.'; return; }
     if (PIN !== document.getElementById('pin2').value.trim()) { document.getElementById('err').textContent = 'The two PINs don’t match.'; return; }
+    document.getElementById('err').textContent = 'Setting up…';
     api('createPin', { newPin: PIN }).then(r => {
-      if (!r.ok) { document.getElementById('err').textContent = r.error; return; }
-      CREATING = false; sync(true);
-    });
+      // "already set" can happen if an earlier try got through; just try opening with it
+      if (!r.ok && r.error !== 'PIN already set') { document.getElementById('err').textContent = r.error; return; }
+      CREATING = false; document.getElementById('pin2').hidden = true; sync(true);
+    }).catch(() => { document.getElementById('err').textContent = 'No connection. Tap Open again.'; });
     return;
   }
   const typed = document.getElementById('url').value.trim();
