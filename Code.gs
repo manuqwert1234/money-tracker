@@ -292,6 +292,12 @@ function doPost(e) {
   const tok = body.token || (e.parameter && e.parameter.k);
   if (!secret || tok !== secret) return json_({ ok: false, error: 'bad token' });
   body.text = body.text || body.message || body.msg || body.content || body.body || body.sms || '';
+  if (Array.isArray(body.items)) {   // Android app: old bank texts from the phone's inbox, in batches
+    const lock = LockService.getScriptLock(); lock.waitLock(30000);
+    try { const r = ingestMany_(body.items.slice(0, 500).map(x => ({ text: String(x.text || ''), source: 'sms', when: x.when ? new Date(Number(x.when)) : new Date() })));
+      return json_({ ok: true, added: r.filter(x => x === 'added').length, total: r.length }); }
+    finally { lock.releaseLock(); }
+  }
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
   if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
   if (body.action === 'answer') {   // Ask Money shortcut sends back Apple Intelligence's answer so the app can show it
@@ -718,7 +724,9 @@ const APP = ${JSON.stringify(app)};
 function show(code, sms) {
   document.getElementById('main').innerHTML =
    '<div class="card"><div><span class="n">1</span><b>Copy your setup code</b></div><div class="code" id="c">' + code + '</div><button onclick="copy()">Copy code</button></div>' +
-   '<div class="card"><div><span class="n">2</span><b>Open the app</b></div><p>Open it, then add it to your home screen:<br>iPhone: Share, then Add to Home Screen.<br>Android: menu (three dots), then Install app.</p><a class="btn" href="' + APP + '#c=' + code + '">Open Money app</a></div>' +
+   '<div class="card"><div><span class="n">2</span><b>Open the app</b></div>' + (/android/i.test(navigator.userAgent)
+      ? '<p>Have the Money Android app? Tap below. (No app yet? Get it first, then come back here.)</p><a class="btn" href="intent://setup?c=' + code + '#Intent;scheme=moneyapp;package=in.moneyapp.money;S.browser_fallback_url=' + encodeURIComponent(APP + 'android.html') + ';end">Open in the Money app</a><a class="btn" style="background:transparent;color:var(--bar)" href="' + APP + 'android.html">Get the Android app</a>'
+      : '<p>Open it, then tap Share, then <b>Add to Home Screen</b>.</p><a class="btn" href="' + APP + '#c=' + code + '">Open Money app</a>') + '</div>' +
    '<div class="card"><div><span class="n">3</span><b>Paste the code and create a PIN</b></div><p>When the app asks, tap Paste, then choose a PIN. That is all.</p></div>' +
    (sms ? '<div class="card"><b>Optional: read bank texts too</b><p>Your personal SMS link (keep it private):</p><div class="code">' + sms + '</div><p>The app explains how to use it on iPhone or Android (Settings, then Connections).</p></div>' : '');
 }
