@@ -8,6 +8,7 @@ BUILD=$(date +%Y%m%d%H%M%S)
 
 sed "s/const BUILD = '__BUILD__'/const BUILD = '$BUILD'/" Index.html > docs/index.html
 echo "$BUILD" > docs/version.txt
+cp Code.gs docs/core.js   # the same Money code, run on the phone in "on this phone" mode
 sed -i '' -E "s/const CACHE = 'money-[^']+'/const CACHE = 'money-$BUILD'/" docs/sw.js
 
 cp Index.html gas/Index.html

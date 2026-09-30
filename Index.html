@@ -167,8 +167,13 @@
 <body>
 <div id="onboard" hidden>
   <div style="font-size:44px;font-weight:800;letter-spacing:-.03em">Money</div>
-  <p class="note" style="font-size:16px;margin:10px 0 28px">See your bank balance and spending, from your bank's emails and texts. Free and private: everything stays in your own Google account.</p>
-  <a class="btn2" style="background:var(--bar);color:#fff;padding:15px;font-size:17px" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Sign in with Google</a>
+  <p class="note" style="font-size:16px;margin:10px 0 28px">See your bank balance and spending, from your bank's texts and emails. Free and private.</p>
+  <div class="local-only" hidden>
+    <button style="padding:15px;font-size:17px" onclick="startLocal()">Start</button>
+    <p class="note" style="margin-top:10px">Reads your bank texts on this phone. Nothing leaves your phone. No account needed.</p>
+    <p class="note" style="margin-top:28px">Also want your bank emails, or to use Money on more than one phone?</p>
+  </div>
+  <a class="btn2 google-btn" style="background:var(--bar);color:#fff;padding:15px;font-size:17px" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Sign in with Google</a>
   <p class="note" style="margin-top:14px">Google will ask you to allow Money. If it says the app isn't verified, tap Advanced, then Go to Money.</p>
   <p class="note android-only" style="margin-top:22px" hidden>On Android? <a href="android.html">Get the Android app</a> so bank texts work too.</p>
   <p class="note" style="margin-top:36px"><u onclick="document.getElementById('codeBox').hidden=false">I have a setup link</u></p>
@@ -238,7 +243,11 @@ function pasteCode() {
   if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(useCode).catch(() => document.getElementById('codeIn').focus());
   else document.getElementById('codeIn').focus();
 }
-function showOnboard() { if (/android/i.test(navigator.userAgent) && !window.MoneyAndroid) document.querySelectorAll('.android-only').forEach(e => e.hidden = false);
+function showOnboard() {
+  if (window.MoneyAndroid && MoneyAndroid.localAvailable && MoneyAndroid.localAvailable()) {
+    document.querySelectorAll('.local-only').forEach(e => e.hidden = false);
+    const g = document.querySelector('.google-btn'); if (g) { g.style.background = 'var(--track)'; g.style.color = 'var(--bar)'; }
+  } if (/android/i.test(navigator.userAgent) && !window.MoneyAndroid) document.querySelectorAll('.android-only').forEach(e => e.hidden = false);
   (function(){})(); ['lock', 'app', 'nav'].forEach(id => document.getElementById(id).hidden = true); document.getElementById('onboard').hidden = false; }
 // Opened from the setup page link (…#c=MNY1.xxx): use it straight away
 // Opened from the "Open Money" button after signing in (…?c=… or …#c=…): connect straight away, no PIN to type
@@ -246,7 +255,22 @@ let FROM_SETUP = false;
 if (!IN_GOOGLE && /[#?&]c=/.test(location.search + location.hash)) { const j = decodeCode(location.search + location.hash); if (j) { applyCode(j); FROM_SETUP = true; } }
 const IS_IOS = /iphone|ipad/i.test(navigator.userAgent), STANDALONE = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 
+// "On this phone" mode (Android, no account): the Money code runs right here
+const LOCAL = !IN_GOOGLE && store.get('mode') === 'local';
+function loadLocal() {
+  if (window.LocalMoney) return Promise.resolve();
+  const add = src => new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = src + '?v=' + BUILD; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); });
+  return add('local.js').then(() => add('core.js'));
+}
+function startLocal() {
+  store.set('mode', 'local'); store.set('url', 'local'); store.set('pin', 'local');
+  location.reload();
+}
+window.onLocalTexts = items => {   // the Android app hands over bank texts (old ones on first start, then each new one)
+  loadLocal().then(() => { const n = LocalMoney.ingest(items); if (n) toast(n + ' payment' + (n > 1 ? 's' : '') + ' added'); sync(); });
+};
 function api(action, extra) {
+  if (LOCAL) return loadLocal().then(() => LocalMoney.call(action, Object.assign({}, extra || {})));
   if (IN_GOOGLE) return new Promise((ok, bad) => {
     const r = google.script.run.withFailureHandler(bad);
     if (action === 'summary') r.withSuccessHandler(ok).getSummary(PIN);
@@ -259,7 +283,7 @@ function api(action, extra) {
   const body = JSON.stringify(Object.assign({ action, pin: PIN }, extra || {}));
   const attempt = n => {
     const ctl = window.AbortController ? new AbortController() : null;
-    const timer = ctl && setTimeout(() => ctl.abort(), 12000);   // never hang: give up on a request after 12s
+    const timer = ctl && setTimeout(() => ctl.abort(), 30000);   // Google can take ~15s to wake up; give up only after 30s
     return fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, signal: ctl && ctl.signal })
       .then(r => r.text()).then(t => { clearTimeout(timer); return JSON.parse(t); })
       .catch(e => { clearTimeout(timer); if (n >= 1) throw e; return new Promise(ok => setTimeout(ok, 800)).then(() => attempt(n + 1)); });
@@ -302,10 +326,10 @@ function sync(fromLock) {
     render();
     if (WANT_REFRESH) { WANT_REFRESH = false; refreshNow(); }
     if (FROM_SETUP && IS_IOS && !STANDALONE && !store.get('seenAddHome')) { FROM_SETUP = false; document.getElementById('app').hidden = true; document.getElementById('nav').hidden = true; document.getElementById('addHome').hidden = false; }
-    if (window.MoneyAndroid && d.status && d.status.smsLink) try { MoneyAndroid.setSmsLink(d.status.smsLink); } catch (e) {}
+    if (!LOCAL && window.MoneyAndroid && d.status && d.status.smsLink) try { MoneyAndroid.setSmsLink(d.status.smsLink); } catch (e) {}
   }).catch(e => {
     BUSY = false; paintSync();
-    if (!DATA) showLock('Couldn’t connect. Check the URL and your internet. (' + (e.message || e) + ')');
+    if (!DATA) showLock(/abort/i.test(String(e && e.message)) ? 'Your server is taking long to wake up. Tap Open again.' : 'Couldn’t connect. Check your internet and tap Open again.');
   });
 }
 
@@ -371,7 +395,7 @@ function homeView(d) {
     ${monthCard(d)}
     ${recentCard(d)}
     ${bankList(d)}
-    ${askCard(d)}`;
+    ${window.MoneyAndroid ? '' : askCard(d)}`;
 }
 
 // "This month" in plain words, with the top 3 categories
@@ -853,6 +877,7 @@ const IS_ANDROID = /android/i.test(navigator.userAgent); let SMS_OTHER = false;
 function copyText(t, label) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast((label || 'Copied'))).catch(() => prompt('Copy this:', t)); }
 function smsGuide(d) {
   const link = (d.status || {}).smsLink; if (!link) return '';
+  if (window.MoneyAndroid && LOCAL) return '';
   if (window.MoneyAndroid) {
     let ok = false; try { ok = MoneyAndroid.smsAllowed(); } catch (e) {}
     return `<h1>Bank texts</h1><div class="card">${ok
@@ -906,13 +931,15 @@ function settingsView(d) {
     <div class="card">${(() => { const st = d.status || {}, H = 3600000;
       const sms = st.lastSms ? Date.now() - new Date(st.lastSms) : null, gm = st.lastScan ? Date.now() - new Date(st.lastScan) : null;
       const row = (ok, name, text) => `<div class="conn"><span class="dot" style="background:${ok ? 'var(--good)' : 'var(--warn)'}"></span><div class="grow"><div>${name}</div><div class="sub">${text}</div></div></div>`;
+      if (LOCAL) return row(true, 'Bank texts on this phone', 'read automatically · stored only on this phone') +
+        `<div class="conn"><div class="grow"><div>Bank emails</div><div class="sub">Sign in with Google to add your bank's emails too.</div></div></div>`;
       return row(sms !== null && sms < 7 * 24 * H, 'Bank SMS (iPhone Shortcut)', st.lastSms ? 'last text received ' + ago(st.lastSms) + (st.lastSmsResult ? ' · ' + st.lastSmsResult : '') : 'nothing received yet — check the Shortcuts automation') +
              row(gm !== null && gm < H, 'Bank emails (Gmail)', st.lastScan ? 'last checked ' + ago(st.lastScan) : 'not checked yet') +
              row(true, 'This app', 'synced ' + (SYNCED ? ago(new Date(SYNCED).toISOString()) : 'never') + ' · pull down anywhere to refresh'); })()}</div>
     ${smsGuide(d)}
-    <h1>Your phones</h1>
+    ${LOCAL ? '' : `<h1>Your phones</h1>
     <div class="card"><p class="note" style="margin-top:0">To use Money on another phone, send it this link. Anyone with the link can see your money, so only send it to yourself.</p>
-      <button onclick="addPhone()">Add another phone</button></div>
+      <button onclick="addPhone()">Add another phone</button></div>`}
     <h1>Bank balances</h1>
     <div class="card">
       ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
@@ -993,7 +1020,8 @@ function addManual() {
 
 // ── Auto-sync: on open, whenever you come back to the app, and every minute while it's open ──
 if (DATA) render();
-if (!IN_GOOGLE && !URL_) showOnboard();
+if (LOCAL) { PIN = 'local'; sync(); if (window.MoneyAndroid && MoneyAndroid.startLocal) MoneyAndroid.startLocal(); }
+else if (!IN_GOOGLE && !URL_) showOnboard();
 else if (PIN) sync(); else { if (!DATA) showLock(); sync(true); }
 // New version published? Reload once so the phone never runs an old copy.
 function checkUpdate() {

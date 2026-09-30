@@ -71,7 +71,10 @@ function install() {
     return { ok: true, url: url.url };
   } catch (e) {
     if (String(e.message) === 'API_OFF') return { ok: false, apiOff: true, detail: String(e.detail || '').slice(0, 300) };
-    return { ok: false, error: 'While ' + step + ': ' + String(e.message || e) };
+    let who = '';
+    try { const ti = JSON.parse(UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + ScriptApp.getOAuthToken(), { muteHttpExceptions: true }).getContentText());
+      who = ' [account: ' + (ti.email || Session.getActiveUser().getEmail() || '?') + '; access: ' + String(ti.scope || '').replace(/https:\/\/www\.googleapis\.com\/auth\//g, '') + ']'; } catch (x) {}
+    return { ok: false, error: 'While ' + step + ': ' + String(e.message || e) + who };
   }
 }
 
