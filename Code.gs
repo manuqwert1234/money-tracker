@@ -284,6 +284,7 @@ function doPost(e) {
     return json_(added ? Object.assign(getSummary(body.pin), { added }) : { ok: true, added: 0 });
   }
   if (body.action === 'createPin') return json_(createPin(body.newPin));
+  if (body.action === 'setupInfo') return json_(getSetupInfo(body.pin));
   if (body.action === 'saveSettings') return json_(saveSettings(body.pin, body.settings || {}));
   if (body.action === 'setCategory') return json_(setCategory(body.pin, body.merchant, body.category));
   if (body.action === 'add') return json_({ ok: true, result: addManual(body.pin, body.text || '') });
@@ -695,46 +696,45 @@ function firstRun_() {
 
 function webUrl_() { return ScriptApp.getService().getUrl().replace(/\/dev$/, '/exec'); }
 /** One code the app needs: where your server is. (The app never needs your token.) */
-function setupCode_() { return 'MNY1.' + Utilities.base64EncodeWebSafe(JSON.stringify({ u: webUrl_() })).replace(/=+$/, ''); }
+/** The link back into the app: where your server is + this phone's private key (no PIN to type). */
+function setupCode_(key) { return 'MNY1.' + Utilities.base64EncodeWebSafe(JSON.stringify(key ? { u: webUrl_(), p: key } : { u: webUrl_() })).replace(/=+$/, ''); }
 function smsLink_() { return webUrl_() + '?k=' + PropertiesService.getScriptProperties().getProperty('SECRET'); }
-/** For the setup page after a PIN exists: only with the right PIN. */
-function getSetupInfo(pin) { return pinOk_(pin) ? { ok: true, code: setupCode_(), sms: smsLink_() } : { ok: false }; }
+/** "Add another phone" from inside the app (already unlocked): a fresh link for the new phone. */
+function getSetupInfo(pin) { return pinOk_(pin) ? { ok: true, code: setupCode_(PropertiesService.getScriptProperties().getProperty('PIN')), sms: smsLink_() } : { ok: false }; }
 
+/**
+ * Right after installing: Google has just asked the owner to Allow, so this is them.
+ * Give their phone a private key (instead of making them invent a PIN) and send them straight back into the app.
+ */
 function setupPage_() {
-  const hasPin = !!PropertiesService.getScriptProperties().getProperty('PIN');
-  const code = hasPin ? '' : setupCode_();
+  const props = PropertiesService.getScriptProperties();
   const app = 'https://manuqwert1234.github.io/money-tracker/';
+  let code = '';
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (!props.getProperty('PIN')) { const key = Utilities.getUuid().replace(/-/g, ''); props.setProperty('PIN', key); code = setupCode_(key); }
+  } finally { lock.releaseLock(); }
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_top">
 <style>
-  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --bar:#2f6fed; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#000; --card:#1c1c1e; --text:#f5f5f7; --muted:#98989d; --line:#2c2c2e; --bar:#5b8ff9; } }
-  body { margin:0; background:var(--bg); color:var(--text); font:17px -apple-system, system-ui, Roboto, sans-serif; padding:24px 16px 48px; max-width:520px; margin:0 auto; }
-  h1 { font-size:28px; margin:8px 0 4px; } p { color:var(--muted); line-height:1.45; }
-  .card { background:var(--card); border-radius:14px; padding:16px; margin:14px 0; }
-  .n { display:inline-block; width:26px; height:26px; border-radius:13px; background:var(--text); color:var(--bg); text-align:center; line-height:26px; font-size:14px; font-weight:700; margin-right:8px; }
-  .code { font:15px ui-monospace, Menlo, monospace; word-break:break-all; background:var(--bg); padding:12px; border-radius:10px; margin:10px 0; }
-  button, a.btn { display:block; width:100%; box-sizing:border-box; font:inherit; font-weight:600; border:0; border-radius:12px; padding:14px; background:var(--bar); color:#fff; text-align:center; text-decoration:none; margin-top:8px; }
-  input { font:inherit; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --bar:#2f6fed; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --card:#1c1c1e; --text:#f5f5f7; --muted:#98989d; --bar:#5b8ff9; } }
+  body { margin:0 auto; background:var(--bg); color:var(--text); font:17px -apple-system, system-ui, Roboto, sans-serif; padding:48px 20px; max-width:480px; text-align:center; }
+  h1 { font-size:28px; margin:0 0 8px; } p { color:var(--muted); line-height:1.45; }
+  a.btn { display:block; font-weight:600; border-radius:12px; padding:15px; background:var(--bar); color:#fff; text-decoration:none; margin-top:18px; }
 </style></head><body>
-<h1>Your Money app is ready</h1>
-<p>Everything lives in your own Google account. Only you can see it. Your bank emails from the last 3 years are being read now (a few minutes).</p>
-<div id="main">${hasPin ? `<div class="card"><p>Enter your PIN to see your setup code again.</p><input id="pin" type="password" inputmode="numeric" placeholder="PIN"><button onclick="unlock()">Show</button><p id="err"></p></div>` : ''}</div>
+${code ? `<h1>You're all set</h1><p>Your Money app is ready. It is reading your bank emails from the last 3 years now.</p>
+<a class="btn" id="go" href="#">Open Money</a>
 <script>
-const APP = ${JSON.stringify(app)};
-function show(code, sms) {
-  document.getElementById('main').innerHTML =
-   '<div class="card"><div><span class="n">1</span><b>Copy your setup code</b></div><div class="code" id="c">' + code + '</div><button onclick="copy()">Copy code</button></div>' +
-   '<div class="card"><div><span class="n">2</span><b>Open the app</b></div>' + (/android/i.test(navigator.userAgent)
-      ? '<p>Have the Money Android app? Tap below. (No app yet? Get it first, then come back here.)</p><a class="btn" href="intent://setup?c=' + code + '#Intent;scheme=moneyapp;package=in.moneyapp.money;S.browser_fallback_url=' + encodeURIComponent(APP + 'android.html') + ';end">Open in the Money app</a><a class="btn" style="background:transparent;color:var(--bar)" href="' + APP + 'android.html">Get the Android app</a>'
-      : '<p>Open it, then tap Share, then <b>Add to Home Screen</b>.</p><a class="btn" href="' + APP + '#c=' + code + '">Open Money app</a>') + '</div>' +
-   '<div class="card"><div><span class="n">3</span><b>Paste the code and create a PIN</b></div><p>When the app asks, tap Paste, then choose a PIN. That is all.</p></div>' +
-   (sms ? '<div class="card"><b>Optional: read bank texts too</b><p>Your personal SMS link (keep it private):</p><div class="code">' + sms + '</div><p>The app explains how to use it on iPhone or Android (Settings, then Connections).</p></div>' : '');
-}
-function copy() { const t = document.getElementById('c').textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => alert('Copied')).catch(() => { const r = document.createRange(); r.selectNode(document.getElementById('c')); getSelection().removeAllRanges(); getSelection().addRange(r); alert('Code selected. Tap Copy.'); }); }
-function unlock() { google.script.run.withSuccessHandler(r => r.ok ? show(r.code, r.sms) : (document.getElementById('err').textContent = 'Wrong PIN')).getSetupInfo(document.getElementById('pin').value); }
-${hasPin ? '' : `show(${JSON.stringify(code)}, '');`}
-</script></body></html>`;
-  return HtmlService.createHtmlOutput(html).setTitle('Money setup').addMetaTag('viewport', 'width=device-width, initial-scale=1')
+  const code = ${JSON.stringify(code)}, APP = ${JSON.stringify(app)};
+  const android = /android/i.test(navigator.userAgent);
+  const url = android ? 'intent://setup?c=' + code + '#Intent;scheme=moneyapp;package=in.moneyapp.money;S.browser_fallback_url=' + encodeURIComponent(APP + '?c=' + code) + ';end'
+                      : APP + '?c=' + code;
+  document.getElementById('go').href = url;
+  setTimeout(() => { try { window.top.location.href = url; } catch (e) {} }, 600);
+</script>`
+: `<h1>Already set up</h1><p>This Money app is already connected to a phone. To add another phone, open Money on your current phone, go to Settings, then Add another phone.</p>`}
+</body></html>`;
+  return HtmlService.createHtmlOutput(html).setTitle('Money').addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 

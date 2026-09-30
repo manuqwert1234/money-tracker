@@ -22,24 +22,23 @@
 <p>Track your bank balance and spending from your bank's emails and texts. Free. Everything is created in <b>your own Google account</b>. Nobody else, including the person who shared this, can see your money.</p>
 
 <div class="card" id="s1">
-  <div><span class="n">1</span><b>Install in your Google account</b></div>
-  <p class="small">Takes about 20 seconds.</p>
-  <button id="go" onclick="go()">Install Money</button>
+  <div><b>Setting up Money in your Google account</b></div>
+  <p class="small">About 20 seconds. Keep this page open.</p>
+  <button id="go" onclick="go()" disabled>Setting up…</button>
   <p id="msg" class="small"></p>
 </div>
 
 <div class="card" id="api" hidden>
   <div><b>One switch first</b></div>
-  <p class="small">Google needs you to allow apps like this one to set themselves up. Open the page below, turn on <b>Google Apps Script API</b>, then come back here.</p>
+  <p class="small">Google needs one switch turned on, once. Tap the button, turn on <b>Google Apps Script API</b>, then come back to this page.</p>
   <a class="btn alt" href="https://script.google.com/home/usersettings" target="_blank">Open the switch</a>
   <button onclick="go()">I turned it on. Continue</button>
 </div>
 
 <div class="card" id="s2" hidden>
-  <div><span class="n">2</span><b>Open your Money setup</b></div>
-  <p class="small">Google will ask you to allow Money to read your bank emails. If it says <b>"Google hasn't verified this app"</b>, tap <b>Advanced</b>, then <b>Go to Money</b>, then <b>Allow</b>. It is your own copy, so that warning is expected.</p>
-  <a class="btn" id="open" href="#">Open my setup</a>
-  <p class="small">It then shows your setup code and a button to open the app.</p>
+  <div><b>Last step: allow Money to read your bank emails</b></div>
+  <p class="small">If Google says <b>"Google hasn't verified this app"</b>, tap <b>Advanced</b>, then <b>Go to Money</b>, then <b>Allow</b>. It is your own private copy, so that warning is expected.</p>
+  <a class="btn" id="open" href="#">Continue</a>
 </div>
 
 <script>
@@ -52,12 +51,14 @@ function go() {
     if (r.ok) {
       m.textContent = r.again ? 'Already installed.' : 'Installed.';
       document.getElementById('s1').hidden = true;
-      document.getElementById('open').href = r.url + '?page=setup';
+      const next = r.url + '?page=setup';
+      document.getElementById('open').href = next;
       document.getElementById('s2').hidden = false;
-    } else if (r.apiOff) { m.textContent = ''; document.getElementById('api').hidden = false; }
-    else m.textContent = 'Something went wrong: ' + r.error + '. Tap Install again.';
-  }).withFailureHandler(e => { b.disabled = false; m.textContent = 'Something went wrong: ' + e.message; }).install();
+    } else if (r.apiOff) { m.textContent = ''; b.textContent = 'Waiting for the switch…'; document.getElementById('api').hidden = false; }
+    else { b.textContent = 'Try again'; m.textContent = 'Something went wrong: ' + r.error; }
+  }).withFailureHandler(e => { b.disabled = false; b.textContent = 'Try again'; m.textContent = 'Something went wrong: ' + e.message; }).install();
 }
+go();   // start straight away
 </script>
 </body>
 </html>

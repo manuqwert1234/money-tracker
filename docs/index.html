@@ -141,20 +141,24 @@
   .field input[type=checkbox] { width:24px; height:24px; }
   .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom) + 76px); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; }
   .note { font-size:13px; color:var(--muted); margin:8px 0; }
-  #lock, #onboard { max-width:340px; margin:18vh auto 0; text-align:center; }
+  #lock, #onboard, #addHome { max-width:360px; margin:14vh auto 0; text-align:center; }
 </style>
 </head>
 <body>
 <div id="onboard" hidden>
-  <h1>Money</h1>
-  <p class="big" style="font-size:22px;font-weight:700;margin:6px 0 4px">Welcome</p>
-  <p class="note" style="font-size:15px">Paste the setup code from your setup page. It connects this app to your own Google account.</p>
-  <button onclick="pasteCode()">Paste setup code</button>
-  <input id="codeIn" placeholder="or type it here (starts with MNY1.)" style="margin-top:8px" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <button onclick="useCode(document.getElementById('codeIn').value)" style="background:var(--card);color:var(--bar)">Continue</button>
+  <div style="font-size:44px;font-weight:800;letter-spacing:-.03em">Money</div>
+  <p class="note" style="font-size:16px;margin:10px 0 28px">See your bank balance and spending, from your bank's emails and texts. Free and private: everything stays in your own Google account.</p>
+  <a class="btn2" style="background:var(--bar);color:#fff;padding:15px;font-size:17px" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Sign in with Google</a>
+  <p class="note" style="margin-top:14px">Google will ask you to allow Money. If it says the app isn't verified, tap Advanced, then Go to Money.</p>
+  <p class="note" style="margin-top:36px"><u onclick="document.getElementById('codeBox').hidden=false">I have a setup link</u></p>
+  <div id="codeBox" hidden><input id="codeIn" placeholder="Paste it here" autocapitalize="off" autocorrect="off" spellcheck="false"><button onclick="useCode(document.getElementById('codeIn').value)">Continue</button></div>
   <p class="note" id="obErr"></p>
-  <p class="note" style="margin-top:28px">New here? Install Money in your own Google account first. It gives you your setup code.</p>
-  <a class="btn2" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Install Money</a>
+</div>
+<div id="addHome" hidden>
+  <div style="font-size:30px;font-weight:800">Almost done</div>
+  <p class="note" style="font-size:16px;margin:12px 0">Put Money on your home screen so it opens like an app:</p>
+  <ol class="steps" style="text-align:left;font-size:17px"><li>Tap the <b>Share</b> button at the bottom of Safari.</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Open <b>Money</b> from your home screen.</li></ol>
+  <button onclick="document.getElementById('addHome').hidden=true;store.set('seenAddHome','1');render()">Continue in Safari for now</button>
 </div>
 <div id="lock">
   <h1>Money</h1>
@@ -185,7 +189,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20260930202901';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20260930203350';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
@@ -193,17 +197,20 @@ document.getElementById('url').hidden = true;
 
 // Setup code = "MNY1." + base64 of {"u": "<your server>/exec"}. Only says where your server is.
 function decodeCode(c) {
-  c = String(c || '').trim().replace(/^.*#c=/, '');
-  if (/^https:\/\/script\.google\.com\/.+\/exec/.test(c)) return c.split('?')[0];
+  c = String(c || '').trim().replace(/^.*[#?&]c=/, '');
+  if (/^https:\/\/script\.google\.com\/.+\/exec/.test(c)) return { u: c.split('?')[0] };
   const m = c.match(/MNY1\.([A-Za-z0-9_-]+)/); if (!m) return null;
-  try { let b = m[1].replace(/-/g, '+').replace(/_/g, '/'); while (b.length % 4) b += '='; const j = JSON.parse(atob(b)); return /^https:\/\/script\.google\.com\//.test(j.u) ? j.u : null; } catch (e) { return null; }
+  try { let b = m[1].replace(/-/g, '+').replace(/_/g, '/'); while (b.length % 4) b += '='; const j = JSON.parse(atob(b)); return /^https:\/\/script\.google\.com\//.test(j.u) ? j : null; } catch (e) { return null; }
+}
+function applyCode(j) {
+  const same = j.u === URL_ && (!j.p || j.p === PIN);
+  if (!same) { URL_ = j.u; store.set('url', j.u); PIN = j.p || ''; store.set('pin', PIN); DATA = null; store.set('data', ''); }
 }
 function useCode(c) {
-  const u = decodeCode(c);
-  if (!u) { document.getElementById('obErr').textContent = 'That is not a setup code. It starts with MNY1.'; return; }
-  URL_ = u; store.set('url', u); PIN = ''; store.set('pin', ''); DATA = null; store.set('data', '');
-  document.getElementById('onboard').hidden = true; history.replaceState(null, '', location.pathname);
-  showLock(''); sync(true);   // server says "needs PIN" → create-PIN screen
+  const j = decodeCode(c);
+  if (!j) { document.getElementById('obErr').textContent = 'That link does not look right. Open it again from your setup page.'; return; }
+  applyCode(j); document.getElementById('onboard').hidden = true;
+  if (PIN) sync(true); else { showLock(''); sync(true); }
 }
 function pasteCode() {
   if (window.MoneyAndroid) { try { const t = MoneyAndroid.clipboard(); if (t) return useCode(t); } catch (e) {} }
@@ -212,7 +219,10 @@ function pasteCode() {
 }
 function showOnboard() { ['lock', 'app', 'nav'].forEach(id => document.getElementById(id).hidden = true); document.getElementById('onboard').hidden = false; }
 // Opened from the setup page link (…#c=MNY1.xxx): use it straight away
-if (!IN_GOOGLE && /#c=/.test(location.hash)) { const u = decodeCode(location.hash); if (u && u !== URL_) { URL_ = u; store.set('url', u); PIN = ''; store.set('pin', ''); DATA = null; store.set('data', ''); } history.replaceState(null, '', location.pathname); }
+// Opened from the "Open Money" button after signing in (…?c=… or …#c=…): connect straight away, no PIN to type
+let FROM_SETUP = false;
+if (!IN_GOOGLE && /[#?&]c=/.test(location.search + location.hash)) { const j = decodeCode(location.search + location.hash); if (j) { applyCode(j); FROM_SETUP = true; } }
+const IS_IOS = /iphone|ipad/i.test(navigator.userAgent), STANDALONE = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 
 function api(action, extra) {
   if (IN_GOOGLE) return new Promise((ok, bad) => {
@@ -269,6 +279,7 @@ function sync(fromLock) {
     store.set('pin', PIN); store.set('url', URL_); store.set('data', JSON.stringify(d)); store.set('synced', String(SYNCED));
     render();
     if (WANT_REFRESH) { WANT_REFRESH = false; refreshNow(); }
+    if (FROM_SETUP && IS_IOS && !STANDALONE && !store.get('seenAddHome')) { FROM_SETUP = false; document.getElementById('app').hidden = true; document.getElementById('nav').hidden = true; document.getElementById('addHome').hidden = false; }
     if (window.MoneyAndroid && d.status && d.status.smsLink) try { MoneyAndroid.setSmsLink(d.status.smsLink); } catch (e) {}
   }).catch(e => {
     BUSY = false; paintSync();
@@ -804,6 +815,14 @@ function smsGuide(d) {
 
 window.onSmsImport = n => { toast(n ? n + ' old payments imported from your texts' : 'Texts connected'); setTimeout(sync, 1500); };
 
+function addPhone() {
+  api('setupInfo').then(r => {
+    if (!r.ok) return toast('Could not get the link');
+    const link = 'https://manuqwert1234.github.io/money-tracker/?c=' + r.code;
+    if (navigator.share) navigator.share({ title: 'Money', text: 'Open this on your other phone', url: link }).catch(() => {}); else copyText(link, 'Link copied');
+  }).catch(() => toast('No connection'));
+}
+
 // ───────── Settings tab ─────────
 function settingsView(d) {
   const S = d.settings || { budget: d.budget, categoryBudgets: {}, bigPayment: 0, emailAlerts: true };
@@ -824,6 +843,9 @@ function settingsView(d) {
              row(gm !== null && gm < H, 'Bank emails (Gmail)', st.lastScan ? 'last checked ' + ago(st.lastScan) : 'not checked yet') +
              row(true, 'This app', 'synced ' + (SYNCED ? ago(new Date(SYNCED).toISOString()) : 'never') + ' · pull down anywhere to refresh'); })()}</div>
     ${smsGuide(d)}
+    <h1>Your phones</h1>
+    <div class="card"><p class="note" style="margin-top:0">To use Money on another phone, send it this link. Anyone with the link can see your money, so only send it to yourself.</p>
+      <button onclick="addPhone()">Add another phone</button></div>
     <h1>Bank balances</h1>
     <div class="card">
       ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
