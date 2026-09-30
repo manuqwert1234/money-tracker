@@ -292,6 +292,7 @@ function doPost(e) {
   if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
   if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
+  if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
     try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
@@ -326,20 +327,20 @@ function scanGmail(fromApp) {
   if (!lock.tryLock(fromApp ? 1000 : 20000)) return 0;   // another check is already running
   let added = 0;
   try {
+    // Banks put every alert in one giant thread, so ask Gmail for individual recent MESSAGES
+    // (Gmail API) instead of loading whole threads with hundreds of old emails. This is what was slow.
     const items = [];
-    // Banks put every alert in one giant thread, so skip old messages BEFORE reading them (this is what was slow)
-    const since = Date.now() - 3 * 86400000;
-    for (const thread of GmailApp.search(CONFIG.GMAIL_QUERY, 0, 30)) {
-      if (thread.getLastMessageDate().getTime() < since) continue;
-      const msgs = thread.getMessages();
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const msg = msgs[i];
-        if (msg.getDate().getTime() < since) break;          // newest first; stop at the first old one
-        const id = msg.getId();
-        if (seen.has(id)) continue;
-        seen.add(id);
-        items.push({ text: msg.getSubject() + '. ' + msg.getPlainBody(), source: 'email', when: msg.getDate() });
-      }
+    const q = CONFIG.GMAIL_QUERY.replace(/newer_than:\S+/, '') + ' newer_than:2d';
+    let refs = [];
+    try { refs = (Gmail.Users.Messages.list('me', { q, maxResults: 40 }).messages || []); }
+    catch (e) {   // Gmail API not available yet → light fallback: newest 5 messages of recent threads only
+      for (const th of GmailApp.search(q, 0, 10)) { const ms = th.getMessages(); ms.slice(-5).forEach(m => refs.push({ id: m.getId() })); }
+    }
+    for (const ref of refs) {
+      if (seen.has(ref.id)) continue;
+      seen.add(ref.id);
+      const msg = GmailApp.getMessageById(ref.id);
+      items.push({ text: msg.getSubject() + '. ' + msg.getPlainBody(), source: 'email', when: msg.getDate() });
     }
     if (items.length) added = ingestMany_(items).filter(r => r === 'added').length;   // one sheet read for all
   } finally {
