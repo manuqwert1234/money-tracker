@@ -44,8 +44,13 @@ function install() {
     if (P.getProperty('URL')) return { ok: true, url: P.getProperty('URL'), again: true };
     step = 'creating your Money sheet';
     let sheetId = P.getProperty('SHEET');
-    if (sheetId) { try { SpreadsheetApp.openById(sheetId); } catch (e) { sheetId = null; P.deleteProperty('SHEET'); P.deleteProperty('SCRIPT'); } }
-    if (!sheetId) { sheetId = SpreadsheetApp.create('Money').getId(); P.setProperty('SHEET', sheetId); }
+    if (!sheetId) {   // create it through the Sheets API (works reliably from a web app running as the visitor)
+      const r = UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, payload: JSON.stringify({ properties: { title: 'Money', timeZone: 'Asia/Kolkata' } }) });
+      const j = JSON.parse(r.getContentText() || '{}');
+      if (r.getResponseCode() >= 300) throw new Error((j.error && j.error.message) || r.getContentText());
+      sheetId = j.spreadsheetId; P.setProperty('SHEET', sheetId);
+    }
     step = 'creating the Money program';
     let scriptId = P.getProperty('SCRIPT');
     if (!scriptId) { scriptId = api_('post', 'projects', { title: 'Money', parentId: sheetId }).scriptId; P.setProperty('SCRIPT', scriptId); }
