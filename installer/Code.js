@@ -15,6 +15,7 @@ function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Page');
   t.r = install();
   t.self = ScriptApp.getService().getUrl();
+  t.email = Session.getActiveUser().getEmail();
   return t.evaluate().setTitle('Install Money').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -27,7 +28,7 @@ function api_(method, path, payload) {
   let j = {}; try { j = JSON.parse(r.getContentText() || '{}'); } catch (e) {}
   if (r.getResponseCode() >= 300) {
     const msg = (j.error && j.error.message) || r.getContentText();
-    if (/not enabled|has not been used|is disabled|enable it/i.test(msg)) throw new Error('API_OFF');
+    if (/not enabled|has not been used|is disabled|enable it/i.test(msg)) { const e = new Error('API_OFF'); e.detail = msg; throw e; }
     throw new Error(msg);
   }
   return j;
@@ -56,7 +57,7 @@ function install() {
     P.setProperty('URL', url.url);
     return { ok: true, url: url.url };
   } catch (e) {
-    return String(e.message) === 'API_OFF' ? { ok: false, apiOff: true } : { ok: false, error: String(e.message || e) };
+    return String(e.message) === 'API_OFF' ? { ok: false, apiOff: true, detail: String(e.detail || '').slice(0, 300) } : { ok: false, error: String(e.message || e) };
   }
 }
 

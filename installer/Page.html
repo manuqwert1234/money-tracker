@@ -27,9 +27,11 @@
 <? } else if (r.apiOff) { ?>
   <div class="card">
     <b>One switch, one time</b>
-    <p class="small">Google needs you to turn on <b>Google Apps Script API</b> so Money can set itself up in your account. Tap the button, turn it on, then come back and tap Continue.</p>
-    <a class="btn alt" href="https://script.google.com/home/usersettings" target="_blank">Open the switch</a>
+    <p class="small">Google needs you to turn on <b>Google Apps Script API</b> so Money can set itself up in your account<? if (email) { ?> (<b><?= email ?></b>)<? } ?>. Tap the button, turn it on, then come back and tap Continue.</p>
+    <a class="btn alt" href="https://script.google.com/home/usersettings<? if (email) { ?>?authuser=<?= encodeURIComponent(email) ?><? } ?>" target="_blank">Open the switch</a>
     <a class="btn" href="<?= self ?>">Continue</a>
+    <p class="small">Already on? Google can take a few minutes to notice. Wait a minute, then tap Continue again.</p>
+    <p class="small" style="opacity:.6">Google said: <?= r.detail ?></p>
   </div>
 <? } else { ?>
   <div class="card">
