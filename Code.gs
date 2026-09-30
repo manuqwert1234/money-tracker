@@ -327,8 +327,14 @@ function scanGmail(fromApp) {
   let added = 0;
   try {
     const items = [];
-    for (const thread of GmailApp.search(CONFIG.GMAIL_QUERY, 0, 50)) {
-      for (const msg of thread.getMessages()) {
+    // Banks put every alert in one giant thread, so skip old messages BEFORE reading them (this is what was slow)
+    const since = Date.now() - 3 * 86400000;
+    for (const thread of GmailApp.search(CONFIG.GMAIL_QUERY, 0, 30)) {
+      if (thread.getLastMessageDate().getTime() < since) continue;
+      const msgs = thread.getMessages();
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const msg = msgs[i];
+        if (msg.getDate().getTime() < since) break;          // newest first; stop at the first old one
         const id = msg.getId();
         if (seen.has(id)) continue;
         seen.add(id);
@@ -339,7 +345,7 @@ function scanGmail(fromApp) {
   } finally {
     lock.releaseLock();
   }
-  props.setProperty('SEEN', JSON.stringify([...seen].slice(-800)));
+  props.setProperty('SEEN', JSON.stringify([...seen].slice(-1500)));
   return added;
 }
 
@@ -354,7 +360,10 @@ function customCategories_() {
 function buildSummary_() {
   const sh = sheet_(SHEET_TX, TX_HEADERS);
   const n = sh.getLastRow() - 1;
-  const rows = n > 0 ? sh.getRange(2, 1, n, 10).getValues() : [];
+  // Only the 8 short columns: skipping the long message text makes this several times faster
+  const rows = n > 0 ? sh.getRange(2, 1, n, 8).getValues() : [];
+  const catMemo = {};
+  const catFor = m => catMemo[m] !== undefined ? catMemo[m] : (catMemo[m] = categorize_(m, '', custom));
   rows.sort((a, b) => new Date(a[0]) - new Date(b[0]));
   const custom = customCategories_();
   const tz = CONFIG.TIMEZONE;
@@ -393,7 +402,7 @@ function buildSummary_() {
     const m = fmt(when, 'yyyy-MM'), day = Number(fmt(when, 'd'));
     if (type === 'credit') { if (m === thisMonth) received += amount; continue; }
 
-    const cat = categorize_(merchant, message, custom);
+    const cat = catFor(merchant);
     const ageDays = (now - new Date(when)) / 86400000;
     if (ageDays <= 30 && fmt(when, 'yyyy-MM-dd') !== todayKey) past30[fmt(when, 'yyyy-MM-dd')] = (past30[fmt(when, 'yyyy-MM-dd')] || 0) + amount;
 
@@ -458,13 +467,13 @@ function buildSummary_() {
     alerts,
     recent: rows.slice(-40).reverse().map(r => ({
       when: new Date(r[0]).toISOString(), account: r[1], type: r[3], amount: r[4], merchant: r[5],
-      category: r[3] === 'debit' ? categorize_(r[5], r[9], custom) : 'Money in',
+      category: r[3] === 'debit' ? catFor(r[5]) : 'Money in',
     })),
     unparsed: unparsed ? Math.max(0, unparsed.getLastRow() - 1) : 0,
     settings: S,
     // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
     history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
-      r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? categorize_(r[5], r[9], custom) : 'Money in']),
+      r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? catFor(r[5]) : 'Money in']),
     allCategories: CATEGORIES,
   };
 }
@@ -526,9 +535,10 @@ function getSummary(pin) {
   const cache = CacheService.getScriptCache();
   const key = 'summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd');
   const hit = cache.get(key);
-  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  if (hit) { try { return JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(hit), 'application/x-gzip')).getDataAsString()); } catch (e) {} }
   const d = buildSummary_();
-  try { cache.put(key, JSON.stringify(d), 300); } catch (e) {}   // too big for the cache → just skip caching
+  // compressed so years of history still fit in Google's 100 KB cache slot
+  try { cache.put(key, Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(d), 'application/json')).getBytes()), 600); } catch (e) {}
   return d;
 }
 function clearCache_() { try { CacheService.getScriptCache().remove('summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd')); } catch (e) {} }
