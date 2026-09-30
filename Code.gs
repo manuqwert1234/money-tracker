@@ -292,6 +292,12 @@ function doPost(e) {
   if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
   if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
+  if (body.action === 'answer') {   // Ask Money shortcut sends back Apple Intelligence's answer so the app can show it
+    const pr = PropertiesService.getScriptProperties(); let a = []; try { a = JSON.parse(pr.getProperty('ANSWERS') || '[]'); } catch (e) {}
+    a.push([new Date().toISOString(), String(body.q || '').slice(0, 300), String(body.a || '').slice(0, 1500)]);
+    pr.setProperty('ANSWERS', JSON.stringify(a.slice(-15)));
+    return json_({ ok: true });
+  }
   if (body.action === 'brief') return ContentService.createTextOutput(brief_()).setMimeType(ContentService.MimeType.TEXT);
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
@@ -588,7 +594,8 @@ function getSummary(pin) {
 function status_() {   // always live, never cached
   const pr = PropertiesService.getScriptProperties(); let log = []; try { log = JSON.parse(pr.getProperty('INBOX_LOG') || '[]'); } catch (e) {}
   const last = log[log.length - 1];
-  return { lastSms: last ? last[0] : null, lastSmsResult: last ? last[1] : null, lastScan: pr.getProperty('LAST_SCAN') };
+  let answers = []; try { answers = JSON.parse(pr.getProperty('ANSWERS') || '[]'); } catch (e) {}
+  return { lastSms: last ? last[0] : null, lastSmsResult: last ? last[1] : null, lastScan: pr.getProperty('LAST_SCAN'), answers };
 }
 function clearCache_() { try { CacheService.getScriptCache().remove('summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd')); } catch (e) {} }
 
