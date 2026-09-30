@@ -85,7 +85,10 @@
   .ask-in { display:flex; gap:8px; } .ask-in input { flex:1; } .ask-in button { width:auto; margin:0; padding:0 16px; }
   .qa { padding:10px 0; border-bottom:1px solid var(--line); } .qa:last-child { border-bottom:0; }
   .qa .q { font-weight:600; font-size:15px; } .qa .a { font-size:15px; line-height:1.45; margin-top:4px; white-space:pre-wrap; }
-  * { box-sizing:border-box; }
+  ol.steps { margin:6px 0 10px; padding-left:20px; line-height:1.5; font-size:15px; } ol.steps li { margin:6px 0; }
+  .code { display:block; font:13px ui-monospace, Menlo, monospace; background:var(--track); padding:8px; border-radius:8px; margin-top:4px; word-break:break-word; }
+  a.btn2 { display:block; text-align:center; padding:12px; border-radius:10px; margin-top:8px; background:var(--track); color:var(--bar); font-weight:600; text-decoration:none; }
+    * { box-sizing:border-box; }
   html { background:var(--bg); }
   body { margin:0 auto; background:var(--bg); color:var(--text); font:16px -apple-system, system-ui, sans-serif; max-width:560px;
          padding:calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 90px); -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
@@ -138,10 +141,21 @@
   .field input[type=checkbox] { width:24px; height:24px; }
   .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom) + 76px); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; }
   .note { font-size:13px; color:var(--muted); margin:8px 0; }
-  #lock { max-width:320px; margin:20vh auto 0; text-align:center; }
+  #lock, #onboard { max-width:340px; margin:18vh auto 0; text-align:center; }
 </style>
 </head>
 <body>
+<div id="onboard" hidden>
+  <h1>Money</h1>
+  <p class="big" style="font-size:22px;font-weight:700;margin:6px 0 4px">Welcome</p>
+  <p class="note" style="font-size:15px">Paste the setup code from your setup page. It connects this app to your own Google account.</p>
+  <button onclick="pasteCode()">Paste setup code</button>
+  <input id="codeIn" placeholder="or type it here (starts with MNY1.)" style="margin-top:8px" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button onclick="useCode(document.getElementById('codeIn').value)" style="background:var(--card);color:var(--bar)">Continue</button>
+  <p class="note" id="obErr"></p>
+  <p class="note" style="margin-top:28px">New here? Install Money in your own Google account first. It gives you your setup code.</p>
+  <a class="btn2" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Install Money</a>
+</div>
 <div id="lock">
   <h1>Money</h1>
   <input id="url" type="url" placeholder="Paste your Web app URL (…/exec)" style="margin-bottom:8px">
@@ -171,13 +185,33 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-// Your server. Built in so you never have to paste it.
 const BUILD = '__BUILD__';   // replaced on publish; the app reloads itself when a newer build is live
-const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbx_89qVHduJzbO_V24J36aoPk6fkId-RgIDZ4agAk3h33-DLOeyvNLFz7gaWoz5fZM_/exec';
-let PIN = store.get('pin') || '', URL_ = store.get('url') || DEFAULT_URL, TAB = store.get('tab') || 'home';
+let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
-if (IN_GOOGLE || URL_) document.getElementById('url').hidden = true; else document.getElementById('url').value = URL_;
+document.getElementById('url').hidden = true;
+
+// Setup code = "MNY1." + base64 of {"u": "<your server>/exec"}. Only says where your server is.
+function decodeCode(c) {
+  c = String(c || '').trim().replace(/^.*#c=/, '');
+  if (/^https:\/\/script\.google\.com\/.+\/exec/.test(c)) return c.split('?')[0];
+  const m = c.match(/MNY1\.([A-Za-z0-9_-]+)/); if (!m) return null;
+  try { let b = m[1].replace(/-/g, '+').replace(/_/g, '/'); while (b.length % 4) b += '='; const j = JSON.parse(atob(b)); return /^https:\/\/script\.google\.com\//.test(j.u) ? j.u : null; } catch (e) { return null; }
+}
+function useCode(c) {
+  const u = decodeCode(c);
+  if (!u) { document.getElementById('obErr').textContent = 'That is not a setup code. It starts with MNY1.'; return; }
+  URL_ = u; store.set('url', u); PIN = ''; store.set('pin', ''); DATA = null; store.set('data', '');
+  document.getElementById('onboard').hidden = true; history.replaceState(null, '', location.pathname);
+  showLock(''); sync(true);   // server says "needs PIN" → create-PIN screen
+}
+function pasteCode() {
+  if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(useCode).catch(() => document.getElementById('codeIn').focus());
+  else document.getElementById('codeIn').focus();
+}
+function showOnboard() { ['lock', 'app', 'nav'].forEach(id => document.getElementById(id).hidden = true); document.getElementById('onboard').hidden = false; }
+// Opened from the setup page link (…#c=MNY1.xxx): use it straight away
+if (!IN_GOOGLE && /#c=/.test(location.hash)) { const u = decodeCode(location.hash); if (u && u !== URL_) { URL_ = u; store.set('url', u); PIN = ''; store.set('pin', ''); DATA = null; store.set('data', ''); } history.replaceState(null, '', location.pathname); }
 
 function api(action, extra) {
   if (IN_GOOGLE) return new Promise((ok, bad) => {
@@ -215,10 +249,7 @@ function unlock() {
     }).catch(() => { document.getElementById('err').textContent = 'No connection. Tap Open again.'; });
     return;
   }
-  const typed = document.getElementById('url').value.trim();
-  if (!IN_GOOGLE && typed) URL_ = typed;
-  if (!URL_) URL_ = DEFAULT_URL;
-  if (!IN_GOOGLE && !/^https:\/\/script\.google\.com\/.+\/exec/.test(URL_)) { document.getElementById('err').textContent = 'That doesn’t look like your Web app URL (it ends in /exec).'; return; }
+  if (!IN_GOOGLE && !URL_) { showOnboard(); return; }
   sync(true);
 }
 
@@ -737,6 +768,32 @@ function analysisView(d) {
 }
 function wireAnalysis() {}
 
+// Step-by-step for reading bank texts, for this person's phone (iPhone Shortcuts or an Android forwarder app)
+const IS_ANDROID = /android/i.test(navigator.userAgent); let SMS_OTHER = false;
+function copyText(t, label) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast((label || 'Copied'))).catch(() => prompt('Copy this:', t)); }
+function smsGuide(d) {
+  const link = (d.status || {}).smsLink; if (!link) return '';
+  const L = JSON.stringify(link).replace(/"/g, '&quot;');
+  const ios = `<ol class="steps">
+      <li>Tap <b>Copy SMS link</b> below.</li>
+      <li>Tap <b>Get the shortcut</b>, then <b>Add Shortcut</b>. When it asks for your SMS link, paste it.</li>
+      <li>Open <b>Shortcuts</b>, then <b>Automation</b>, then <b>+</b>. In the box, type:<br><span class="code">When I get a notification from Messages, run Send to Money with the notification</span></li>
+      <li>Make sure it is set to run automatically, without asking.</li></ol>
+    <button onclick="copyText(${L}, 'SMS link copied')">Copy SMS link</button>
+    <a class="btn2" href="Send%20to%20Money.shortcut">Get the shortcut</a>`;
+  const android = `<ol class="steps">
+      <li>Tap <b>Copy SMS link</b> below.</li>
+      <li>Install <b>SMS to URL Forwarder</b> (free) from the Play Store and open it.</li>
+      <li>Tap <b>+</b>. Sender: <b>*</b> (all). Webhook URL: paste your SMS link. Leave the rest as it is and save.</li>
+      <li>Allow it to read SMS when Android asks. Turn off battery saving for it (Settings, Apps, SMS to URL Forwarder, Battery, Unrestricted).</li></ol>
+    <button onclick="copyText(${L}, 'SMS link copied')">Copy SMS link</button>
+    <a class="btn2" href="https://play.google.com/store/search?q=SMS%20to%20URL%20Forwarder&c=apps">Open Play Store</a>`;
+  return `<h1>Read bank texts too (optional)</h1><div class="card">
+    <p class="note" style="margin-top:0">Bank emails already work. Texts make new payments show up instantly. Your SMS link is private: it lets messages into your account.</p>
+    ${(IS_ANDROID !== SMS_OTHER) ? android : ios}
+    <p class="note">${(IS_ANDROID !== SMS_OTHER) ? 'On an iPhone instead?' : 'On Android instead?'} <u onclick="SMS_OTHER = !SMS_OTHER; render()">Show those steps</u></p></div>`;
+}
+
 // ───────── Settings tab ─────────
 function settingsView(d) {
   const S = d.settings || { budget: d.budget, categoryBudgets: {}, bigPayment: 0, emailAlerts: true };
@@ -756,6 +813,7 @@ function settingsView(d) {
       return row(sms !== null && sms < 7 * 24 * H, 'Bank SMS (iPhone Shortcut)', st.lastSms ? 'last text received ' + ago(st.lastSms) + (st.lastSmsResult ? ' · ' + st.lastSmsResult : '') : 'nothing received yet — check the Shortcuts automation') +
              row(gm !== null && gm < H, 'Bank emails (Gmail)', st.lastScan ? 'last checked ' + ago(st.lastScan) : 'not checked yet') +
              row(true, 'This app', 'synced ' + (SYNCED ? ago(new Date(SYNCED).toISOString()) : 'never') + ' · pull down anywhere to refresh'); })()}</div>
+    ${smsGuide(d)}
     <h1>Bank balances</h1>
     <div class="card">
       ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
@@ -836,7 +894,8 @@ function addManual() {
 
 // ── Auto-sync: on open, whenever you come back to the app, and every minute while it's open ──
 if (DATA) render();
-if (PIN && (IN_GOOGLE || URL_)) sync(); else { if (!DATA) showLock(); if (IN_GOOGLE || URL_) sync(true); }
+if (!IN_GOOGLE && !URL_) showOnboard();
+else if (PIN) sync(); else { if (!DATA) showLock(); sync(true); }
 // New version published? Reload once so the phone never runs an old copy.
 function checkUpdate() {
   if (IN_GOOGLE || BUILD.startsWith('__')) return;

@@ -289,7 +289,9 @@ function doPost(e) {
   if (body.action === 'add') return json_({ ok: true, result: addManual(body.pin, body.text || '') });
 
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
-  if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
+  const tok = body.token || (e.parameter && e.parameter.k);
+  if (!secret || tok !== secret) return json_({ ok: false, error: 'bad token' });
+  body.text = body.text || body.message || body.msg || body.content || body.body || body.sms || '';
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
   if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
   if (body.action === 'answer') {   // Ask Money shortcut sends back Apple Intelligence's answer so the app can show it
@@ -326,7 +328,10 @@ function doPost(e) {
 }
 
 /** The dashboard page. It shows nothing until the right PIN is entered. */
-function doGet() {
+function doGet(e) {
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('SECRET')) firstRun_();
+  if ((e && e.parameter && e.parameter.page === 'setup') || !props.getProperty('PIN')) return setupPage_();
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Money')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
@@ -338,6 +343,27 @@ function json_(obj) {
 }
 
 /** Runs every 10 minutes: reads new bank emails. */
+/** Reads one email (subject + text body) with the read-only Gmail API. */
+function gmailMsg_(id) {
+  const m = Gmail.Users.Messages.get('me', id, { format: 'full' });
+  const hdr = {}; (m.payload.headers || []).forEach(h => hdr[h.name.toLowerCase()] = h.value);
+  let plain = '', html = '';
+  // The Gmail service gives the body as bytes (or, rarely, web-safe base64 text)
+  const dec = d => {
+    if (typeof d !== 'string') return Utilities.newBlob(d).getDataAsString('UTF-8');
+    d = d.replace(/-/g, '+').replace(/_/g, '/'); while (d.length % 4) d += '='; return Utilities.newBlob(Utilities.base64Decode(d)).getDataAsString('UTF-8');
+  };
+  const walk = part => {
+    if (!part) return;
+    if (part.body && part.body.data) { const t = dec(part.body.data); if (part.mimeType === 'text/plain') plain += t + '\n'; else if (part.mimeType === 'text/html') html += t; }
+    (part.parts || []).forEach(walk);
+  };
+  walk(m.payload);
+  const body = plain || html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/tr>/gi, '\n').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#8377;|&#x20b9;/gi, '₹').replace(/&[a-z]+;/g, ' ');
+  return { text: (hdr.subject || '') + '. ' + body, when: new Date(Number(m.internalDate)), source: 'email' };
+}
+
 function scanGmail(fromApp) {
   const props = PropertiesService.getScriptProperties();
   const seen = new Set(JSON.parse(props.getProperty('SEEN') || '[]'));
@@ -350,16 +376,11 @@ function scanGmail(fromApp) {
     // (Gmail API) instead of loading whole threads with hundreds of old emails. This is what was slow.
     const items = [];
     const q = CONFIG.GMAIL_QUERY.replace(/newer_than:\S+/, '') + ' newer_than:2d';
-    let refs = [];
-    try { refs = (Gmail.Users.Messages.list('me', { q, maxResults: 40 }).messages || []); }
-    catch (e) {   // Gmail API not available yet → light fallback: newest 5 messages of recent threads only
-      for (const th of GmailApp.search(q, 0, 10)) { const ms = th.getMessages(); ms.slice(-5).forEach(m => refs.push({ id: m.getId() })); }
-    }
+    const refs = Gmail.Users.Messages.list('me', { q, maxResults: 40 }).messages || [];
     for (const ref of refs) {
       if (seen.has(ref.id)) continue;
       seen.add(ref.id);
-      const msg = GmailApp.getMessageById(ref.id);
-      items.push({ text: msg.getSubject() + '. ' + msg.getPlainBody(), source: 'email', when: msg.getDate() });
+      items.push(gmailMsg_(ref.id));
     }
     if (items.length) added = ingestMany_(items).filter(r => r === 'added').length;   // one sheet read for all
   } finally {
@@ -506,26 +527,26 @@ function buildSummary_() {
 function importHistory() {
   const props = PropertiesService.getScriptProperties();
   const started = Date.now();
-  let start = Number(props.getProperty('IMPORT_AT') || 0);
+  let pageToken = props.getProperty('IMPORT_PAGE') || undefined, start = Number(props.getProperty('IMPORT_AT') || 0);
   let added = Number(props.getProperty('IMPORT_ADDED') || 0);
   const query = 'newer_than:3y (debited OR credited OR spent OR "has been used" OR withdrawn OR "transaction alert")';
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     while (Date.now() - started < 4.5 * 60 * 1000) {
-      const threads = GmailApp.search(query, start, 100);
-      if (!threads.length) {
-        props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED');
+      const res = Gmail.Users.Messages.list('me', { q: query, maxResults: 100, pageToken });
+      const ids = res.messages || [];
+      if (ids.length) added += ingestMany_(ids.map(r => gmailMsg_(r.id))).filter(r => r === 'added').length;
+      start += ids.length; pageToken = res.nextPageToken;
+      props.setProperty('IMPORT_AT', String(start)); props.setProperty('IMPORT_ADDED', String(added));
+      if (pageToken) props.setProperty('IMPORT_PAGE', pageToken); else props.deleteProperty('IMPORT_PAGE');
+      Logger.log('…read ' + start + ' emails, added ' + added + ' transactions so far');
+      if (!pageToken) {
+        props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED'); props.setProperty('IMPORT_DONE', new Date().toISOString());
         ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'importHistory').forEach(t => ScriptApp.deleteTrigger(t));
         Logger.log('Import finished. Added ' + added + ' transactions from your old emails.');
         return;
       }
-      const items = [];
-      for (const th of threads) for (const m of th.getMessages()) items.push({ text: m.getSubject() + '. ' + m.getPlainBody(), source: 'email', when: m.getDate() });
-      added += ingestMany_(items).filter(r => r === 'added').length;
-      start += threads.length;
-      props.setProperty('IMPORT_AT', String(start)); props.setProperty('IMPORT_ADDED', String(added));
-      Logger.log('…read ' + start + ' email threads, added ' + added + ' transactions so far');
     }
   } finally { lock.releaseLock(); }
   // Not done yet: continue in a minute.
@@ -549,7 +570,7 @@ function rebuildFromEmails() {
   const u = sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
   if (u.getLastRow() > 1) u.getRange(2, 1, u.getLastRow() - 1, 3).clearContent();
   const props = PropertiesService.getScriptProperties();
-  props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED'); props.deleteProperty('SEEN');
+  props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED'); props.deleteProperty('IMPORT_PAGE'); props.deleteProperty('SEEN');
   importHistory();
 }
 
@@ -595,7 +616,8 @@ function status_() {   // always live, never cached
   const pr = PropertiesService.getScriptProperties(); let log = []; try { log = JSON.parse(pr.getProperty('INBOX_LOG') || '[]'); } catch (e) {}
   const last = log[log.length - 1];
   let answers = []; try { answers = JSON.parse(pr.getProperty('ANSWERS') || '[]'); } catch (e) {}
-  return { lastSms: last ? last[0] : null, lastSmsResult: last ? last[1] : null, lastScan: pr.getProperty('LAST_SCAN'), answers };
+  return { lastSms: last ? last[0] : null, lastSmsResult: last ? last[1] : null, lastScan: pr.getProperty('LAST_SCAN'), answers,
+    smsLink: smsLink_(), importing: !!pr.getProperty('IMPORT_PAGE') || (pr.getProperty('FIRST_IMPORT') === '1' && !pr.getProperty('IMPORT_DONE')) };
 }
 function clearCache_() { try { CacheService.getScriptCache().remove('summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd')); } catch (e) {} }
 
@@ -646,6 +668,67 @@ function ensureTriggers_() {   // Gmail check every 5 min: light on Google's lim
 }
 function scanGmail1() { scanGmail(false); }
 function scanGmail5() { scanGmail(false); }
+
+/** A new person's copy, opened for the first time: sheets, India time, triggers, token, and a 3-year email import. */
+function firstRun_() {
+  const props = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(20000)) return;
+  try {
+    if (props.getProperty('SECRET')) return;
+    sheet_(SHEET_TX, TX_HEADERS); sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
+    sheet_('Categories', ['If the shop/person contains…', 'Put it in category']);
+    SpreadsheetApp.getActive().setSpreadsheetTimeZone(CONFIG.TIMEZONE);
+    props.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
+    ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+    ScriptApp.newTrigger('scanGmail5').timeBased().everyMinutes(5).create();
+    ScriptApp.newTrigger('dailyCheck').timeBased().everyDays(1).atHour(21).inTimezone(CONFIG.TIMEZONE).create();
+    ScriptApp.newTrigger('importHistory').timeBased().after(60 * 1000).create();   // starts reading old bank emails in a minute
+    props.setProperty('FIRST_IMPORT', '1');
+  } finally { lock.releaseLock(); }
+}
+
+function webUrl_() { return ScriptApp.getService().getUrl().replace(/\/dev$/, '/exec'); }
+/** One code the app needs: where your server is. (The app never needs your token.) */
+function setupCode_() { return 'MNY1.' + Utilities.base64EncodeWebSafe(JSON.stringify({ u: webUrl_() })).replace(/=+$/, ''); }
+function smsLink_() { return webUrl_() + '?k=' + PropertiesService.getScriptProperties().getProperty('SECRET'); }
+/** For the setup page after a PIN exists: only with the right PIN. */
+function getSetupInfo(pin) { return pinOk_(pin) ? { ok: true, code: setupCode_(), sms: smsLink_() } : { ok: false }; }
+
+function setupPage_() {
+  const hasPin = !!PropertiesService.getScriptProperties().getProperty('PIN');
+  const code = hasPin ? '' : setupCode_();
+  const app = 'https://manuqwert1234.github.io/money-tracker/';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_top">
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --bar:#2f6fed; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --card:#1c1c1e; --text:#f5f5f7; --muted:#98989d; --line:#2c2c2e; --bar:#5b8ff9; } }
+  body { margin:0; background:var(--bg); color:var(--text); font:17px -apple-system, system-ui, Roboto, sans-serif; padding:24px 16px 48px; max-width:520px; margin:0 auto; }
+  h1 { font-size:28px; margin:8px 0 4px; } p { color:var(--muted); line-height:1.45; }
+  .card { background:var(--card); border-radius:14px; padding:16px; margin:14px 0; }
+  .n { display:inline-block; width:26px; height:26px; border-radius:13px; background:var(--text); color:var(--bg); text-align:center; line-height:26px; font-size:14px; font-weight:700; margin-right:8px; }
+  .code { font:15px ui-monospace, Menlo, monospace; word-break:break-all; background:var(--bg); padding:12px; border-radius:10px; margin:10px 0; }
+  button, a.btn { display:block; width:100%; box-sizing:border-box; font:inherit; font-weight:600; border:0; border-radius:12px; padding:14px; background:var(--bar); color:#fff; text-align:center; text-decoration:none; margin-top:8px; }
+  input { font:inherit; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+</style></head><body>
+<h1>Your Money app is ready</h1>
+<p>Everything lives in your own Google account. Only you can see it. Your bank emails from the last 3 years are being read now (a few minutes).</p>
+<div id="main">${hasPin ? `<div class="card"><p>Enter your PIN to see your setup code again.</p><input id="pin" type="password" inputmode="numeric" placeholder="PIN"><button onclick="unlock()">Show</button><p id="err"></p></div>` : ''}</div>
+<script>
+const APP = ${JSON.stringify(app)};
+function show(code, sms) {
+  document.getElementById('main').innerHTML =
+   '<div class="card"><div><span class="n">1</span><b>Copy your setup code</b></div><div class="code" id="c">' + code + '</div><button onclick="copy()">Copy code</button></div>' +
+   '<div class="card"><div><span class="n">2</span><b>Open the app</b></div><p>Open it, then add it to your home screen:<br>iPhone: Share, then Add to Home Screen.<br>Android: menu (three dots), then Install app.</p><a class="btn" href="' + APP + '#c=' + code + '">Open Money app</a></div>' +
+   '<div class="card"><div><span class="n">3</span><b>Paste the code and create a PIN</b></div><p>When the app asks, tap Paste, then choose a PIN. That is all.</p></div>' +
+   (sms ? '<div class="card"><b>Optional: read bank texts too</b><p>Your personal SMS link (keep it private):</p><div class="code">' + sms + '</div><p>The app explains how to use it on iPhone or Android (Settings, then Connections).</p></div>' : '');
+}
+function copy() { const t = document.getElementById('c').textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => alert('Copied')).catch(() => { const r = document.createRange(); r.selectNode(document.getElementById('c')); getSelection().removeAllRanges(); getSelection().addRange(r); alert('Code selected. Tap Copy.'); }); }
+function unlock() { google.script.run.withSuccessHandler(r => r.ok ? show(r.code, r.sms) : (document.getElementById('err').textContent = 'Wrong PIN')).getSetupInfo(document.getElementById('pin').value); }
+${hasPin ? '' : `show(${JSON.stringify(code)}, '');`}
+</script></body></html>`;
+  return HtmlService.createHtmlOutput(html).setTitle('Money setup').addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
 
 /** RUN THIS ONCE. Creates sheets, the Gmail timer, and your secret token. */
 function setup() {
