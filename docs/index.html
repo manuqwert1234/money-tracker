@@ -172,7 +172,7 @@ const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 // Your server. Built in so you never have to paste it.
-const BUILD = '20260930195413';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20260930195657';   // replaced on publish; the app reloads itself when a newer build is live
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbx_89qVHduJzbO_V24J36aoPk6fkId-RgIDZ4agAk3h33-DLOeyvNLFz7gaWoz5fZM_/exec';
 let PIN = store.get('pin') || '', URL_ = store.get('url') || DEFAULT_URL, TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
@@ -634,9 +634,10 @@ function wireMoney(d) {
   hit.addEventListener('touchstart', pick, { passive: true });
 }
 
-// ───────── Ask (Apple Intelligence via the "Ask Money" shortcut) ─────────
+// ───────── Ask (Apple Intelligence via the "Money Check" shortcut) ─────────
 const ASK_SUGGEST = ['How much did I spend this week?', 'Where does most of my money go?', 'Can I afford ₹2,000 this week?', 'Summarise this month in 3 lines'];
 let ASK_OPEN = false;
+const SHORTCUT_NAME = 'Money Check';   // the iPhone shortcut the Ask box runs (a name Siri won't confuse with Messages)
 function askCard(d) {
   const ans = ((d.status || {}).answers || []).slice().reverse();
   return `<div class="card">
@@ -652,7 +653,7 @@ function ask(q) {
   if (!q) return;
   store.set('askPending', String(Date.now()));
   // Runs the Ask Money shortcut with the question; it answers with Apple Intelligence and sends the answer back
-  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent('Ask Money') + '&input=text&text=' + encodeURIComponent(q);
+  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_NAME) + '&input=text&text=' + encodeURIComponent(q);
 }
 
 // ───────── Analysis tab ─────────

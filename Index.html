@@ -634,9 +634,10 @@ function wireMoney(d) {
   hit.addEventListener('touchstart', pick, { passive: true });
 }
 
-// ───────── Ask (Apple Intelligence via the "Ask Money" shortcut) ─────────
+// ───────── Ask (Apple Intelligence via the "Money Check" shortcut) ─────────
 const ASK_SUGGEST = ['How much did I spend this week?', 'Where does most of my money go?', 'Can I afford ₹2,000 this week?', 'Summarise this month in 3 lines'];
 let ASK_OPEN = false;
+const SHORTCUT_NAME = 'Money Check';   // the iPhone shortcut the Ask box runs (a name Siri won't confuse with Messages)
 function askCard(d) {
   const ans = ((d.status || {}).answers || []).slice().reverse();
   return `<div class="card">
@@ -652,7 +653,7 @@ function ask(q) {
   if (!q) return;
   store.set('askPending', String(Date.now()));
   // Runs the Ask Money shortcut with the question; it answers with Apple Intelligence and sends the answer back
-  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent('Ask Money') + '&input=text&text=' + encodeURIComponent(q);
+  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_NAME) + '&input=text&text=' + encodeURIComponent(q);
 }
 
 // ───────── Analysis tab ─────────
