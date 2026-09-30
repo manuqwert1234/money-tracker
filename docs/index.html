@@ -42,6 +42,7 @@
   nav button { flex:1; max-width:180px; background:none; color:var(--muted); margin:0; padding:8px 0 6px; font-size:11px; font-weight:500; border-radius:0; display:flex; flex-direction:column; align-items:center; gap:2px; }
   nav button svg { width:26px; height:26px; }
   nav button.on { color:var(--bar); }
+  nav[hidden], [hidden] { display:none !important; }
   .view { animation:fade .18s ease-out; }
   @keyframes fade { from { opacity:0; transform:translateY(4px); } }
   h1 { font-size:13px; font-weight:600; color:var(--muted); margin:20px 0 6px; text-transform:uppercase; letter-spacing:.04em; }
@@ -143,7 +144,9 @@ function unlock() {
     });
     return;
   }
-  if (!IN_GOOGLE) URL_ = document.getElementById('url').value.trim();
+  const typed = document.getElementById('url').value.trim();
+  if (!IN_GOOGLE && typed) URL_ = typed;
+  if (!URL_) URL_ = DEFAULT_URL;
   if (!IN_GOOGLE && !/^https:\/\/script\.google\.com\/.+\/exec/.test(URL_)) { document.getElementById('err').textContent = 'That doesn’t look like your Web app URL (it ends in /exec).'; return; }
   sync(true);
 }
