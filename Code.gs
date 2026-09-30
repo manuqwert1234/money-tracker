@@ -20,14 +20,14 @@ const CONFIG = {
 
 // Keyword → category. First match wins. Add your own in the "Categories" tab of the Sheet.
 const CATEGORY_RULES = [
-  ['Food', /swiggy|zomato|restaurant|cafe|café|chai|tea|coffee|bakery|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|haldiram|food|canteen|mess|hotel|dhaba|eatclub|box8/i],
-  ['Groceries', /blinkit|zepto|bigbasket|instamart|dmart|jiomart|grocer|kirana|supermarket|fresh|milk|dairy|nature'?s basket|ratnadeep|more retail|spar|reliance smart/i],
-  ['Transport', /uber|ola|rapido|metro|irctc|railway|redbus|petrol|fuel|hpcl|iocl|bpcl|indian oil|shell|fastag|parking|namma yatri|bmtc|makemytrip|indigo|air india|cab|auto/i],
+  ['Food', /swiggy|zomato|restaurant|cafe|café|chai|\btea\b|coffee|swiggy insta|bakery|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|haldiram|food|canteen|\bmess\b|hotel|dhaba|grand|bakes|eatclub|box8/i],
+  ['Groceries', /blinkit|zepto|bigbasket|instamart|dmart|jiomart|grocer|kirana|supermarket|store|stores|\bfresh\b|\bmilk\b|dairy|vendolite|nature'?s basket|ratnadeep|more retail|spar|reliance smart/i],
+  ['Transport', /uber|ola|rapido|\bmetro\b|irctc|railway|redbus|petrol|fuel|hpcl|iocl|bpcl|indian oil|shell|fastag|parking|namma yatri|bmtc|makemytrip|indigo|air india|\bcabs?\b|\bauto\b/i],
   ['Shopping', /amazon|flipkart|myntra|ajio|meesho|nykaa|croma|reliance digital|decathlon|ikea|lenskart|tata cliq|snapdeal|zara|h&m|mall/i],
-  ['Bills & recharge', /airtel|jio|\bvi\b|vodafone|bsnl|recharge|electricity|bescom|tneb|msedcl|water|gas|broadband|act fibernet|dth|tata ?play|insurance|lic|rent|society|emi/i],
+  ['Bills & recharge', /airtel|jio|\bvi\b|vodafone|bsnl|recharge|electricity|bescom|tneb|msedcl|\bwater\b|\bgas\b|broadband|act fibernet|dth|tata ?play|insurance|\blic\b|\brent\b|society|\bemi\b|aws/i],
   ['Fun & subscriptions', /netflix|hotstar|spotify|prime|youtube|bookmyshow|pvr|inox|steam|playstation|xbox|apple|google play|sonyliv|zee5|gaming|dream11/i],
-  ['Health', /pharma|medical|apollo|medplus|1mg|pharmeasy|netmeds|hospital|clinic|doctor|diagnostic|lab|cult\.?fit|gym/i],
-  ['Education', /college|school|university|course|udemy|coursera|fees|exam|book/i],
+  ['Health', /pharma|medical|apollo|medplus|1mg|pharmeasy|netmeds|hospital|clinic|doctor|diagnostic|\blabs?\b|cult\.?fit|gym/i],
+  ['Education', /college|school|university|course|udemy|coursera|\bfees?\b|exam|\bbooks?\b/i],
   ['Cash', /\batm\b|cash withdrawal|withdrawn/i],
 ];
 
@@ -35,7 +35,7 @@ function categorize_(merchant, message, custom) {
   const hay = (merchant || '') + ' ' + (message || '');
   for (const [kw, cat] of custom) if (kw && hay.toLowerCase().includes(kw)) return cat;
   for (const [cat, re] of CATEGORY_RULES) if (re.test(merchant || '')) return cat;
-  for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat;
+  if (!merchant) for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat;
   if (/@/.test(merchant || '') || /^[a-z .]+$/i.test(merchant || '')) return 'People (UPI)';
   return 'Other';
 }
@@ -144,22 +144,28 @@ function parseBankMessage(text) {
 
   // Account: last digits after A/c / Acct / Card
   let last4 = '';
-  m = t.match(/(?:a\/c|acct|acc|account|card|\bac)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i);
+  const own = t.replace(/(sender|beneficiary|payee|remitter)(?:'s)?\s*(a\/c|acct|account)\s*(no\.?)?\s*[:\-]?\s*[x*.#]*\d{3,6}/ig, ' ');
+  m = own.match(/(?:your|from your|to your)\s*(?:a\/c|acct|account)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i) ||
+      own.match(/(?:credited to|debited from)\s+(?:a\/c\s*)?[x*]{2,}(\d{3,6})\b/i);
   if (m) last4 = m[1].slice(-4);
+  if (!last4) m = own.match(/(?:a\/c|acct|acc|account|card|\bac)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i);
+  if (!last4 && m) last4 = m[1].slice(-4);
 
   let bank = '';
   const noVpa = t.replace(/\S+@\S+/g, ' ');   // "okaxis" in a UPI id is not Axis Bank
   for (const [name, re] of BANKS) if (re.test(noVpa)) { bank = name; break; }
 
+  if (!last4) return bank ? null : { skip: 'not a bank alert' };
+
   const isCard = /credit card/i.test(t) || (limit !== null && !/debit card/i.test(t));
   const kind = isCard ? 'card' : 'bank';
   const account = [bank || 'Bank', isCard ? 'Card' : 'A/c', last4 ? 'xx' + last4 : ''].join(' ').trim();
 
-  m = t.match(/(?:ref(?:erence)?\.?\s*(?:no|number)?|refno|utr|rrn|txn\s*id|upi ref|upi)\s*[:.#\-]?\s*([a-z0-9]{6,})/i);
+  m = t.match(/(?:ref(?:erence)?\.?\s*(?:no|number)?|refno|utr|rrn|txn\s*id|upi ref|upi)[\s:.#\-]*([a-z0-9]{6,})/i);
   const ref = m ? m[1] : '';
 
   // Merchant / person (best effort)
-  const STOP = '(?=\\s+(?:on|ref|refno|upi|avl|avbl|if|not|via|thru|dated|at|from|\\d{1,2}[-\\/])\\b|[.;(]|\\s*-\\s*[A-Z]{2,}|$)';
+  const STOP = '(?=\\s+(?:on|ref|refno|upi|avl|avbl|if|not|via|thru|dated|at|from|with|\\d{1,2}[-\\/])\\b|[.;(]|\\s*-\\s*[A-Z]{2,}|$)';
   let merchant = '';
   m = t.match(/upi\*([a-z0-9 .&'\-]{2,40}?)(?=[.;*]|\s+(?:avl|on|ref)\b|$)/i) ||      // ICICI "InfoUPI*RAPIDO"
       t.match(/;\s*([a-z0-9 .&'\-]{2,40}?)\s+credited/i) ||                      // ICICI "...; ZOMATO credited"
@@ -167,8 +173,17 @@ function parseBankMessage(text) {
       t.match(new RegExp("(?:\\bat\\b|\\bto\\b|trf to|transfer to|towards|info[:\\-]?)\\s+([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i'));
   if (!m && type === 'credit') m = t.match(new RegExp("\\bfrom\\s+([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i')) ||
       t.match(new RegExp("(?:\\bby\\b)\\s+([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i'));
-  if (m) merchant = m[1].trim().replace(/^(a\/c|vpa|(by )?transfer from|from)\s+/i, '');
-  if (/^(your|a\/c|ac|acc|acct|account|rs|inr|x+\d+)\b/i.test(merchant) || /^[\d\s\/-]+$/.test(merchant)) merchant = '';
+  const clean = x => {
+    x = (x || '').trim().replace(/^(a\/c|vpa|(by )?transfer from|from)\s+/i, '').replace(/\s+with$/i, '');
+    return (/^(your|a\/c|ac|acc|acct|account|rs|inr|x+\d+)\b/i.test(x) || /unsubscribe|click|view|download|http/i.test(x) || /^[\d\s\/-]+$/.test(x)) ? '' : x;
+  };
+  if (m) merchant = clean(m[1]);
+  if (!merchant && type === 'credit') {
+    m = t.match(new RegExp("\\bfrom\\s+(?!your\\b)([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i'));
+    if (m) merchant = clean(m[1]);
+  }
+  // NEFT: "by Sender MICROSOFT GLOB..." → the company that paid you
+  if (!merchant) { m = t.match(/by sender\s+([a-z0-9 .&'\-]{2,40}?)(?=,|\s+ifsc|$)/i); if (m) merchant = clean(m[1]); }
 
   return { type, amount, balance, limit, account, kind, merchant, ref };
 }
@@ -390,6 +405,9 @@ function buildSummary_() {
     })),
     unparsed: unparsed ? Math.max(0, unparsed.getLastRow() - 1) : 0,
     settings: S,
+    // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
+    history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
+      r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? categorize_(r[5], r[9], custom) : 'Money in']),
     allCategories: CATEGORY_RULES.map(r => r[0]).concat(['People (UPI)', 'Other']),
   };
 }
@@ -426,6 +444,21 @@ function importHistory() {
   // Not done yet: continue in a minute.
   if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'importHistory')) ScriptApp.newTrigger('importHistory').timeBased().everyMinutes(1).create();
   Logger.log('⏳ Still importing. It carries on by itself every minute. You can close this.');
+}
+
+/** Clears the imported emails and reads them again with the latest reader. SMS & manual rows are kept. */
+function rebuildFromEmails() {
+  const sh = sheet_(SHEET_TX, TX_HEADERS);
+  if (sh.getLastRow() > 1) {
+    const keep = sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).getValues().filter(r => r[7] !== 'email');
+    sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, TX_HEADERS.length).setValues(keep);
+  }
+  const u = sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
+  if (u.getLastRow() > 1) u.getRange(2, 1, u.getLastRow() - 1, 3).clearContent();
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED'); props.deleteProperty('SEEN');
+  importHistory();
 }
 
 /** Called by the dashboard. */

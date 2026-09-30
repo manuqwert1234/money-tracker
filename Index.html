@@ -26,6 +26,18 @@
       --good-bg:#10261a; --good:#5fd38a; --warn-bg:#2b2010; --warn:#f5b449; --crit-bg:#2d1413; --crit:#ff8a80; --info-bg:#131d33; --info:#8fb0ff;
     }
   }
+  :root { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --in:#1baf7a; --out:#eb6834; --grid:#e5e5ea; }
+  @media (prefers-color-scheme: dark) { :root { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --in:#199e70; --out:#d95926; --grid:#2c2c2e; } }
+  .chips { display:flex; gap:8px; overflow-x:auto; padding:2px 0 10px; scrollbar-width:none; }
+  .chips button { width:auto; margin:0; padding:7px 12px; border-radius:18px; background:var(--card); color:var(--text); font-size:14px; font-weight:500; white-space:nowrap; display:flex; gap:6px; align-items:center; }
+  .chips button.on { background:var(--text); color:var(--bg); }
+  .sw { width:9px; height:9px; border-radius:50%; display:inline-block; flex:none; }
+  .stack { display:flex; gap:2px; height:10px; border-radius:5px; overflow:hidden; margin:12px 0 4px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--muted); margin-top:6px; }
+  .legend span { display:flex; gap:6px; align-items:center; }
+  .chart svg { display:block; overflow:visible; }
+  .chart .tip { font-size:14px; min-height:40px; margin-top:6px; }
+  .month { cursor:pointer; }
   * { box-sizing:border-box; }
   html { background:var(--bg); }
   body { margin:0 auto; background:var(--bg); color:var(--text); font:16px -apple-system, system-ui, sans-serif; max-width:560px;
@@ -99,7 +111,7 @@
 <nav id="nav" hidden>
   <button data-t="home" onclick="setTab('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
   <button data-t="spend" onclick="setTab('spend')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>Spending</button>
-  <button data-t="money" onclick="setTab('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Accounts</button>
+  <button data-t="money" onclick="setTab('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>History</button>
   <button data-t="settings" onclick="setTab('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </nav>
 
@@ -205,21 +217,21 @@ function render() {
   const app = document.getElementById('app'), nav = document.getElementById('nav');
   app.hidden = false; nav.hidden = false;
   nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
-  const title = { home: 'Money', spend: 'Spending', money: 'Accounts', settings: 'Settings' }[TAB];
+  const title = { home: 'Money', spend: 'This month', money: 'History', settings: 'Settings' }[TAB];
   app.innerHTML = `
     <header><div class="title">${title}</div><button id="sync" class="sync" onclick="sync()"><span class="dot"></span><span></span></button></header>
     <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : TAB === 'settings' ? settingsView(d) : moneyView(d)}</div>`;
   paintSync();
   if (TAB === 'spend') wireChart(d);
+  if (TAB === 'money') wireHistory(d);
 }
 
 // ───────── Home tab ─────────
 function homeView(d) {
-  const total = d.accounts.filter(a => a.kind === 'bank' && a.balance !== null).reduce((s, a) => s + a.balance, 0);
   const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0;
   const top = d.alerts[0];
   return `
-    <div class="card"><div class="sub">Money in bank</div><div class="hero">${inr(total)}</div></div>
+    ${bankCard(d)}
     ${top ? `<div class="alert ${top.level}" onclick="setTab('spend')"><b>${ICON[top.level]}</b><span>${esc(top.text)}${d.alerts.length > 1 ? ` <u>+${d.alerts.length - 1} more</u>` : ''}</span></div>` : ''}
     <div class="card" onclick="setTab('spend')">
       <div style="display:flex;justify-content:space-between"><span class="sub">Spent this month</span><span class="sub">${inr(Math.max(0, d.budget - d.spent))} left</span></div>
@@ -329,27 +341,128 @@ function txRow(t) {
   return `<div class="row"><div>${esc(t.merchant || (t.type === 'credit' ? 'Received' : 'Payment'))}<div class="sub">${esc(t.category)} · ${esc(t.account)} · ${ago(t.when)}</div></div><div class="amt ${t.type}">${t.type === 'credit' ? '+' : '−'}${inr(t.amount)}</div></div>`;
 }
 
+// ───────── Banks (found automatically from your messages) ─────────
+const DAY = 86400000;
+function banks(d) {
+  // One entry per bank account seen in your messages. Order and colour are fixed by name, so a bank keeps its colour.
+  const list = d.accounts.filter(a => a.kind === 'bank').map(a => a.name).sort();
+  return list.map((name, i) => {
+    const a = d.accounts.find(x => x.name === name);
+    return { name, color: `var(--s${(i % 5) + 1})`, balance: a.balance, updated: a.updated,
+             stale: a.updated && Date.now() - new Date(a.updated) > 45 * DAY };
+  });
+}
+const short = n => n.replace(/ A\/c /, ' ');
+const inrK = v => { const a = Math.abs(v); return (v < 0 ? '−' : '') + '₹' + (a >= 1e5 ? (a / 1e5).toFixed(a >= 1e6 ? 0 : 1) + 'L' : a >= 1000 ? (a / 1000).toFixed(a >= 1e4 ? 0 : 1) + 'k' : Math.round(a)); };
+
+function bankCard(d) {
+  const B = banks(d).filter(b => b.balance !== null);
+  const total = B.reduce((s, b) => s + b.balance, 0);
+  if (!B.length) return `<div class="card"><div class="sub">Money in bank</div><div class="hero">—</div><div class="sub">Waiting for a message that shows your balance</div></div>`;
+  return `<div class="card" onclick="setTab('money')">
+    <div class="sub">Money in bank</div><div class="hero">${inr(total)}</div>
+    ${B.length > 1 ? `<div class="stack">${B.map(b => `<div style="flex:${Math.max(b.balance, total * 0.01)};background:${b.color}"></div>`).join('')}</div>` : ''}
+    ${B.map(b => `<div class="row"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
+      <div class="sub">${b.stale ? 'last seen ' + new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'updated ' + ago(b.updated)}</div></div></div>
+      <div class="amt">${inr(b.balance)}</div></div>`).join('')}
+  </div>`;
+}
+
+// ───────── History tab ─────────
+let H_ACCT = 'all', H_RANGE = 36, H_MONTH = null;
+function hFilter(d) {
+  const from = Date.now() - H_RANGE * 30.4 * DAY;
+  return (d.history || []).filter(t => t[0] >= from && (H_ACCT === 'all' || t[1] === H_ACCT));
+}
+function setH(k, v) { if (k === 'a') H_ACCT = v; if (k === 'r') H_RANGE = v; if (k === 'm') H_MONTH = v; if (k !== 'm') H_MONTH = null; render(); }
+
 function moneyView(d) {
-  const banks = d.accounts.filter(a => a.kind === 'bank');
-  const cards = d.accounts.filter(a => a.kind === 'card');
-  const total = banks.filter(a => a.balance !== null).reduce((s, a) => s + a.balance, 0);
-  const acctRow = a => `<div class="row"><div>${esc(a.name)}<div class="sub">${a.balance !== null ? 'updated ' + ago(a.updated) : 'no balance in SMS yet · net ' + inr(a.flow)}</div></div><div class="amt">${a.balance !== null ? inr(a.balance) : '—'}</div></div>`;
-  const cardRow = a => `<div class="row"><div>${esc(a.name)}<div class="sub">available limit · ${ago(a.updated)}</div></div><div class="amt">${a.balance !== null ? inr(a.balance) : '—'}</div></div>`;
+  const B = banks(d);
+  const tx = hFilter(d);
+  const out = tx.filter(t => !t[2]).reduce((s, t) => s + t[3], 0), inn = tx.filter(t => t[2]).reduce((s, t) => s + t[3], 0);
+  const chip = (k, v, label, on, color) => `<button class="${on ? 'on' : ''}" onclick="setH('${k}', ${typeof v === 'string' ? `'${v}'` : v})">${color ? `<span class="sw" style="background:${color}"></span>` : ''}${label}</button>`;
   return `
-    <div class="card"><div class="sub">Money in bank</div><div class="hero">${inr(total)}</div>
-      <div class="sub">Received this month <span class="credit">${inr(d.received)}</span></div></div>
-    <h1>Accounts</h1>
-    <div class="card">${banks.map(acctRow).join('') || '<p class="note">No bank messages yet.</p>'}</div>
-    ${cards.length ? `<h1>Credit cards</h1><div class="card">${cards.map(cardRow).join('')}</div>` : ''}
-    <h1>All recent</h1>
-    <div class="card">${d.recent.map(txRow).join('') || '<p class="note">Nothing yet.</p>'}</div>
-    ${d.unparsed ? `<p class="note">⚠️ ${d.unparsed} message(s) couldn't be read. See the “Unparsed” tab in the Sheet.</p>` : ''}
-    <h1>Add an old SMS</h1>
+    <div class="chips">${chip('a', 'all', 'All banks', H_ACCT === 'all')}${B.map(b => chip('a', b.name, esc(short(b.name)), H_ACCT === b.name, b.color)).join('')}</div>
+    <div class="chips">${[[3, '3 months'], [12, '1 year'], [36, '3 years']].map(([v, l]) => chip('r', v, l, H_RANGE === v)).join('')}</div>
+    <div class="two">
+      <div class="card"><div class="sub">Money in</div><div class="big credit">${inr(inn)}</div></div>
+      <div class="card"><div class="sub">Money out</div><div class="big debit">${inr(out)}</div></div>
+    </div>
+    <h1>How much money you had</h1>
+    <div class="card chart"><div id="balChart"></div><div class="legend" id="balLegend"></div><div class="tip sub" id="balTip">Tap the chart to see a date</div></div>
+    <h1>In and out each month</h1>
+    <div class="card chart"><div id="monChart"></div>
+      <div class="legend"><span><span class="sw" style="background:var(--in)"></span>Money in</span><span><span class="sw" style="background:var(--out)"></span>Money out</span></div>
+      <div class="tip sub">Tap a month for details</div></div>
+    <div id="monthDetail">${monthDetail(d, tx)}</div>
+    ${d.unparsed ? `<p class="note">⚠️ ${d.unparsed} message(s) couldn't be read. See the “Unparsed” tab in the Sheet.</p>` : ''}`;
+}
+
+function monthKey(t) { const x = new Date(t); return x.getFullYear() * 12 + x.getMonth(); }
+function monthName(k, long) { return new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString('en-IN', long ? { month: 'long', year: 'numeric' } : { month: 'short' }); }
+
+function monthDetail(d, tx) {
+  const k = H_MONTH !== null ? H_MONTH : (tx.length ? monthKey(tx[tx.length - 1][0]) : null);
+  if (k === null) return '<p class="note">No transactions in this range yet.</p>';
+  const m = tx.filter(t => monthKey(t[0]) === k);
+  const out = m.filter(t => !t[2]), inn = m.filter(t => t[2]);
+  const sum = a => a.reduce((s, t) => s + t[3], 0);
+  const group = (a, i) => Object.entries(a.reduce((o, t) => (o[t[i] || 'Other'] = (o[t[i] || 'Other'] || 0) + t[3], o), {})).sort((x, y) => y[1] - x[1]);
+  const cats = group(out, 6), places = group(out, 4).slice(0, 5);
+  const max = Math.max(1, ...cats.map(c => c[1]));
+  return `
+    <h1>${monthName(k, true)}</h1>
     <div class="card">
-      <textarea id="manual" rows="3" placeholder="Paste a bank SMS here"></textarea>
-      <button onclick="addManual()">Add</button>
-      <p class="note" id="manualMsg"></p>
-    </div>`;
+      <div class="row"><span>Money in</span><span class="amt credit">+${inr(sum(inn))}</span></div>
+      <div class="row"><span>Money out</span><span class="amt debit">−${inr(sum(out))}</span></div>
+      <div class="row"><span>Net</span><span class="amt">${sum(inn) - sum(out) >= 0 ? '+' : '−'}${inr(Math.abs(sum(inn) - sum(out)))}</span></div>
+    </div>
+    ${cats.length ? `<div class="card">${cats.map(([c, v]) => `<div class="cat"><div class="top"><span>${esc(c)}</span><span class="amt">${inr(v)}</span></div>
+      <div class="meter"><div class="fill" style="width:${v / max * 100}%"></div></div></div>`).join('')}</div>` : ''}
+    ${places.length ? `<h1>Top places</h1><div class="card">${places.map(([n, v]) => `<div class="row"><div>${esc(n)}</div><div class="amt">${inr(v)}</div></div>`).join('')}</div>` : ''}
+    <h1>All ${m.length} transaction${m.length === 1 ? '' : 's'}</h1>
+    <div class="card">${m.slice().reverse().map(t => txRow({ when: new Date(t[0]).toISOString(), account: short(t[1]), type: t[2] ? 'credit' : 'debit', amount: t[3], merchant: t[4], category: t[6] })).join('')}</div>`;
+}
+
+function wireHistory(d) {
+  const tx = hFilter(d), B = banks(d).filter(b => H_ACCT === 'all' || b.name === H_ACCT);
+  // ── Balance lines: one per bank, using the balance printed in each message ──
+  const el = document.getElementById('balChart'), W = el.clientWidth || 320, H = 170, pb = 18, pt = 8;
+  const from = Date.now() - H_RANGE * 30.4 * DAY, to = Date.now();
+  const series = B.map(b => ({ b, pts: tx.filter(t => t[1] === b.name && t[5] !== null).map(t => [t[0], t[5]]) })).filter(s => s.pts.length);
+  const maxV = Math.max(1, ...series.flatMap(s => s.pts.map(p => p[1])));
+  const x = t => (t - from) / (to - from) * W, y = v => H - pb - v / maxV * (H - pb - pt);
+  const grid = [0, .5, 1].map(f => `<line x1="0" x2="${W}" y1="${y(maxV * f)}" y2="${y(maxV * f)}" stroke="var(--grid)"/><text x="0" y="${y(maxV * f) - 3}">${inrK(maxV * f)}</text>`).join('');
+  const ticks = []; for (let k = monthKey(from) + 1; k <= monthKey(to); k++) { const t = new Date(Math.floor(k / 12), k % 12, 1).getTime(); if (H_RANGE <= 3 || (k % 12) % (H_RANGE > 12 ? 6 : 3) === 0) ticks.push(`<text x="${x(t)}" y="${H - 3}" text-anchor="middle">${k % 12 === 0 ? Math.floor(k / 12) : monthName(k)}</text>`); }
+  // step line: balance stays the same until the next message
+  const lines = series.map(s => { let dStr = ''; s.pts.forEach((p, i) => { dStr += (i ? `H${x(p[0])}V${y(p[1])}` : `M${x(p[0])},${y(p[1])}`); }); dStr += `H${x(to)}`;
+    return `<path d="${dStr}" fill="none" stroke="${s.b.color}" stroke-width="2" stroke-linejoin="round"/>`; }).join('');
+  el.innerHTML = series.length ? `<svg width="${W}" height="${H}">${grid}${ticks.join('')}${lines}<line id="cross" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/><rect width="${W}" height="${H}" fill="transparent" id="balHit"/></svg>`
+    : '<p class="note">No balance info in this range.</p>';
+  document.getElementById('balLegend').innerHTML = series.length > 1 ? series.map(s => `<span><span class="sw" style="background:${s.b.color}"></span>${esc(short(s.b.name))}</span>`).join('') : '';
+  const hit = document.getElementById('balHit');
+  if (hit) { const show = ev => { const r = hit.getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left, t = from + px / W * (to - from);
+      const c = document.getElementById('cross'); c.setAttribute('x1', px); c.setAttribute('x2', px); c.setAttribute('visibility', 'visible');
+      document.getElementById('balTip').innerHTML = `<b>${new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</b> · ` +
+        series.map(s => { const p = s.pts.filter(q => q[0] <= t).pop(); return `${esc(short(s.b.name))} ${p ? inr(p[1]) : '—'}`; }).join(' · '); };
+    hit.addEventListener('click', show); hit.addEventListener('mousemove', show); hit.addEventListener('touchmove', e => { show(e); e.preventDefault(); }, { passive: false }); }
+
+  // ── Monthly in (up) / out (down) bars ──
+  const mc = document.getElementById('monChart'), W2 = mc.clientWidth || 320, H2 = 170, mid = 80;
+  const k0 = monthKey(from), k1 = monthKey(to), n = k1 - k0 + 1, gap = 2, bw = Math.max(2, W2 / n - gap);
+  const agg = {}; tx.forEach(t => { const k = monthKey(t[0]); agg[k] = agg[k] || [0, 0]; agg[k][t[2] ? 0 : 1] += t[3]; });
+  // in and out each get their own scale (both labelled), so a salary month doesn't flatten your spending
+  const mxIn = Math.max(1, ...Object.values(agg).map(v => v[0])), mxOut = Math.max(1, ...Object.values(agg).map(v => v[1]));
+  const sel = H_MONTH !== null ? H_MONTH : (tx.length ? monthKey(tx[tx.length - 1][0]) : -1);
+  let bars = `<line x1="0" x2="${W2}" y1="${mid}" y2="${mid}" stroke="var(--grid)"/>`;
+  for (let k = k0; k <= k1; k++) { const bx = (k - k0) * (bw + gap), [i, o] = agg[k] || [0, 0], hi = i / mxIn * (mid - 14), ho = o / mxOut * (H2 - mid - 22), r = Math.min(3, bw / 2);
+    const op = sel === k || sel < 0 ? 1 : .45;
+    if (hi > .5) bars += `<path d="M${bx},${mid - 1}V${mid - hi + r}q0,-${r} ${r},-${r}H${bx + bw - r}q${r},0 ${r},${r}V${mid - 1}Z" fill="var(--in)" opacity="${op}"/>`;
+    if (ho > .5) bars += `<path d="M${bx},${mid + 1}V${mid + ho - r}q0,${r} ${r},${r}H${bx + bw - r}q${r},0 ${r},-${r}V${mid + 1}Z" fill="var(--out)" opacity="${op}"/>`;
+    if (n <= 12 || k % 6 === 0) bars += `<text x="${bx + bw / 2}" y="${H2 - 3}" text-anchor="middle">${k % 12 === 0 && n > 12 ? Math.floor(k / 12) : monthName(k)}</text>`;
+    bars += `<rect class="month" x="${bx - gap / 2}" y="0" width="${bw + gap}" height="${H2}" fill="transparent" onclick="setH('m', ${k})"/>`; }
+  bars += `<text x="0" y="10">in, max +${inrK(mxIn)}</text><text x="0" y="${H2 - 16}">out, max −${inrK(mxOut)}</text>`;
+  mc.innerHTML = `<svg width="${W2}" height="${H2}">${bars}</svg>`;
 }
 
 // ───────── Settings tab ─────────
@@ -376,6 +489,12 @@ function settingsView(d) {
     </div>
     <button id="s_save" onclick="saveSettings()">Save</button>
     <p class="note" id="s_msg"></p>
+    <h1>Add an old SMS</h1>
+    <div class="card">
+      <textarea id="manual" rows="3" placeholder="Paste a bank SMS here"></textarea>
+      <button onclick="addManual()">Add</button>
+      <p class="note" id="manualMsg"></p>
+    </div>
     <button onclick="signOut()" style="background:var(--card);color:var(--crit)">Lock app on this phone</button>`;
 }
 
