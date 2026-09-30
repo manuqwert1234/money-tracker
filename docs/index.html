@@ -104,7 +104,9 @@
 </nav>
 
 <script>
-const inr = n => '₹' + Math.round(Number(n || 0)).toLocaleString('en-IN');
+// Exact amounts: ₹1,234.50 keeps its paise, ₹1,234 stays clean.
+const inr = n => { const v = Math.round(Number(n || 0) * 100) / 100;
+  return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }); };
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const ago = iso => { const m = (Date.now() - new Date(iso)) / 60000; return m < 60 ? Math.max(1, Math.round(m)) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : new Date(iso).toLocaleDateString('en-IN', { day:'numeric', month:'short' }); };
 const ICON = { critical:'⛔ Over', warning:'⚠️ Watch', good:'✅ OK', info:'ℹ️ Note' };

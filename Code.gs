@@ -190,30 +190,45 @@ function day_(date) { return Utilities.formatDate(date, CONFIG.TIMEZONE, 'yyyy-M
 
 /** Saves one message. Returns 'added' | 'duplicate' | 'skipped' | 'unparsed'. */
 function ingest_(text, source, when) {
-  when = when || new Date();
-  const p = parseBankMessage(text);
-  if (p && p.skip) return 'skipped';
-  if (!p) {
-    // Only log things that look like money movements, so promos don't flood it.
-    if (/debit|credit|spent|withdraw|rs\.?\s?\d|inr\s?\d|₹/i.test(text)) {
-      sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']).appendRow([when, source, String(text).slice(0, 1500)]);
-      return 'unparsed';
-    }
-    return 'skipped';
-  }
+  return ingestMany_([{ text, source, when }])[0];
+}
 
+/**
+ * Saves many messages at once (fast enough for importing years of history).
+ * The same payment often arrives by SMS *and* email. With a ref number, match on that.
+ * Without one, match amount+account+day against the *other* source, or the exact same
+ * message time (so re-reading an email is ignored, but two real ₹20 chai payments are kept).
+ */
+function ingestMany_(items) {
   const sh = sheet_(SHEET_TX, TX_HEADERS);
-  // The same payment often arrives by SMS *and* email. With a ref number, match on that.
-  // Without one, match amount+account+day but only against the *other* source,
-  // so two real ₹20 chai payments by SMS on the same day are both kept.
-  const key = p.ref ? 'ref:' + p.ref : [p.account, p.type, p.amount, day_(when)].join('|');
-  const rows = sh.getLastRow() > 1 ? sh.getRange(2, 8, sh.getLastRow() - 1, 2).getValues() : [];
-  for (const [src, k] of rows) {
-    if (k === key && (p.ref || src !== source)) return 'duplicate';
-  }
+  const existing = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues() : [];
+  const seen = new Map();   // key → [{src, t}]
+  const remember = (k, src, t) => { if (!seen.has(k)) seen.set(k, []); seen.get(k).push({ src, t }); };
+  for (const r of existing) remember(r[8], r[7], new Date(r[0]).getTime());
 
-  sh.appendRow([when, p.account, p.kind, p.type, p.amount, p.merchant, p.balance !== null ? p.balance : (p.limit !== null ? p.limit : ''), source, key, String(text).slice(0, 1500)]);
-  return 'added';
+  const newRows = [], unparsed = [], results = [];
+  for (const it of items) {
+    const when = it.when ? new Date(it.when) : new Date();
+    const text = String(it.text || '');
+    const p = parseBankMessage(text);
+    if (p && p.skip) { results.push('skipped'); continue; }
+    if (!p) {
+      // Only log things that look like money movements, so promos don't flood it.
+      if (/debit|credit|spent|withdraw|rs\.?\s?\d|inr\s?\d|₹/i.test(text)) { unparsed.push([when, it.source, text.slice(0, 1500)]); results.push('unparsed'); }
+      else results.push('skipped');
+      continue;
+    }
+    const key = p.ref ? 'ref:' + p.ref : [p.account, p.type, p.amount, day_(when)].join('|');
+    const t = when.getTime();
+    const dup = (seen.get(key) || []).some(e => p.ref || e.src !== it.source || Math.abs(e.t - t) < 1000);
+    if (dup) { results.push('duplicate'); continue; }
+    remember(key, it.source, t);
+    newRows.push([when, p.account, p.kind, p.type, p.amount, p.merchant, p.balance !== null ? p.balance : (p.limit !== null ? p.limit : ''), it.source, key, text.slice(0, 1500)]);
+    results.push('added');
+  }
+  if (newRows.length) sh.getRange(sh.getLastRow() + 1, 1, newRows.length, TX_HEADERS.length).setValues(newRows);
+  if (unparsed.length) { const u = sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']); u.getRange(u.getLastRow() + 1, 1, unparsed.length, 3).setValues(unparsed); }
+  return results;
 }
 
 // ───────────────────────────── Entry points ─────────────────────────────
@@ -307,7 +322,7 @@ function buildSummary_() {
 
   for (const [when, account, kind, type, amount, merchant, balance, , , message] of rows) {
     const a = accounts[account] || (accounts[account] = { name: account, kind, balance: null, flow: 0, updated: null });
-    a.flow += type === 'credit' ? amount : -amount;
+    a.flow = Math.round((a.flow + (type === 'credit' ? amount : -amount)) * 100) / 100;
     if (balance !== '' && balance !== null) a.balance = Number(balance);
     a.updated = new Date(when).toISOString();
 
@@ -358,15 +373,16 @@ function buildSummary_() {
   if (!alerts.length && spent > 0) alerts.push({ level: 'good', text: `You're on track: ${inr(spent)} spent, ${inr(Math.max(0, budget - spent))} left for ${daysLeft} day(s).` });
 
   const sortObj = o => Object.entries(o).sort((x, y) => y[1] - x[1]);
+  const r2 = x => Math.round(x * 100) / 100;   // keep paise, drop float noise
   const unparsed = SpreadsheetApp.getActive().getSheetByName(SHEET_UNPARSED);
   return {
     ok: true,
     accounts: Object.values(accounts),
-    spent, received, spentToday, budget, projected, safeToSpendPerDay, usualPerDay,
-    lastMonthSoFar, lastMonthTotal, today, daysInMonth,
-    daily,
-    categories: sortObj(byCat).map(([name, v]) => ({ name, value: v, last: byCatLast[name] || 0, limit: S.categoryBudgets[name] || null })),
-    merchants: sortObj(byMerchant).slice(0, 6).map(([name, v]) => ({ name, value: v })),
+    spent: r2(spent), received: r2(received), spentToday: r2(spentToday), budget, projected, safeToSpendPerDay, usualPerDay,
+    lastMonthSoFar: r2(lastMonthSoFar), lastMonthTotal: r2(lastMonthTotal), today, daysInMonth,
+    daily: daily.map(r2),
+    categories: sortObj(byCat).map(([name, v]) => ({ name, value: r2(v), last: r2(byCatLast[name] || 0), limit: S.categoryBudgets[name] || null })),
+    merchants: sortObj(byMerchant).slice(0, 6).map(([name, v]) => ({ name, value: r2(v) })),
     alerts,
     recent: rows.slice(-40).reverse().map(r => ({
       when: new Date(r[0]).toISOString(), account: r[1], type: r[3], amount: r[4], merchant: r[5],
@@ -376,6 +392,40 @@ function buildSummary_() {
     settings: S,
     allCategories: CATEGORY_RULES.map(r => r[0]).concat(['People (UPI)', 'Other']),
   };
+}
+
+/**
+ * Imports ALL your old bank emails (last 3 years). Run it once from the editor: Run ▸ importHistory.
+ * Google stops scripts after 6 minutes, so it saves its place and carries on by itself every minute until done.
+ */
+function importHistory() {
+  const props = PropertiesService.getScriptProperties();
+  const started = Date.now();
+  let start = Number(props.getProperty('IMPORT_AT') || 0);
+  let added = Number(props.getProperty('IMPORT_ADDED') || 0);
+  const query = 'newer_than:3y (debited OR credited OR spent OR "has been used" OR withdrawn OR "transaction alert")';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    while (Date.now() - started < 4.5 * 60 * 1000) {
+      const threads = GmailApp.search(query, start, 100);
+      if (!threads.length) {
+        props.deleteProperty('IMPORT_AT'); props.deleteProperty('IMPORT_ADDED');
+        ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'importHistory').forEach(t => ScriptApp.deleteTrigger(t));
+        Logger.log('✅ Import finished. Added ' + added + ' transactions from your old emails.');
+        return;
+      }
+      const items = [];
+      for (const th of threads) for (const m of th.getMessages()) items.push({ text: m.getSubject() + '. ' + m.getPlainBody(), source: 'email', when: m.getDate() });
+      added += ingestMany_(items).filter(r => r === 'added').length;
+      start += threads.length;
+      props.setProperty('IMPORT_AT', String(start)); props.setProperty('IMPORT_ADDED', String(added));
+      Logger.log('…read ' + start + ' email threads, added ' + added + ' transactions so far');
+    }
+  } finally { lock.releaseLock(); }
+  // Not done yet: continue in a minute.
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'importHistory')) ScriptApp.newTrigger('importHistory').timeBased().everyMinutes(1).create();
+  Logger.log('⏳ Still importing. It carries on by itself every minute. You can close this.');
 }
 
 /** Called by the dashboard. */
