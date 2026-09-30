@@ -599,11 +599,11 @@ function addManual(pin, text) {
 }
 
 /** Makes sure the Gmail check runs every 5 minutes (called automatically). */
-function ensureTriggers_() {   // Gmail check every minute (each check takes ~0.5s, well within Google's free limits)
+function ensureTriggers_() {   // Gmail check every 5 min: light on Google's limits (the app also checks instantly when opened)
   const t = ScriptApp.getProjectTriggers();
-  if (!t.some(x => x.getHandlerFunction() === 'scanGmail1')) {
-    t.filter(x => ['scanGmail', 'scanGmail5'].includes(x.getHandlerFunction())).forEach(x => ScriptApp.deleteTrigger(x));
-    ScriptApp.newTrigger('scanGmail1').timeBased().everyMinutes(1).create();
+  if (!t.some(x => x.getHandlerFunction() === 'scanGmail5')) {
+    t.filter(x => ['scanGmail', 'scanGmail1'].includes(x.getHandlerFunction())).forEach(x => ScriptApp.deleteTrigger(x));
+    ScriptApp.newTrigger('scanGmail5').timeBased().everyMinutes(5).create();
   }
 }
 function scanGmail1() { scanGmail(false); }
@@ -618,7 +618,7 @@ function setup() {
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('SECRET')) props.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('scanGmail1').timeBased().everyMinutes(1).create();
+  ScriptApp.newTrigger('scanGmail5').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('dailyCheck').timeBased().everyDays(1).atHour(21).inTimezone(CONFIG.TIMEZONE).create();
   Logger.log('Your secret token for the iPhone Shortcut:  ' + props.getProperty('SECRET'));
 }
