@@ -50,6 +50,7 @@ function settings_() {
     categoryBudgets: saved.categoryBudgets || CONFIG.CATEGORY_BUDGETS || {},
     bigPayment: saved.bigPayment != null ? Number(saved.bigPayment) : CONFIG.BIG_PAYMENT,
     emailAlerts: saved.emailAlerts != null ? !!saved.emailAlerts : CONFIG.EMAIL_ALERTS,
+    balances: saved.balances || {},
   };
 }
 
@@ -78,7 +79,14 @@ function saveSettings(pin, s) {
   }
   const cats = {};
   for (const [k, v] of Object.entries(s.categoryBudgets || {})) if (k && Number(v) > 0) cats[String(k).slice(0, 40)] = Math.round(Number(v));
+  const old = settings_();
+  const balances = Object.assign({}, old.balances);
+  for (const [k, v] of Object.entries(s.setBalances || {})) {
+    if (v === '' || v === null) delete balances[k];
+    else if (isFinite(Number(v))) balances[String(k).slice(0, 60)] = { value: Math.round(Number(v) * 100) / 100, at: Date.now() };
+  }
   props.setProperty('SETTINGS', JSON.stringify({
+    balances,
     budget: Math.max(0, Math.round(Number(s.budget) || 0)),
     categoryBudgets: cats,
     bigPayment: Math.max(0, Math.round(Number(s.bigPayment) || 0)),
@@ -129,11 +137,11 @@ function parseBankMessage(text) {
   // Balance / available limit first, then cut it out so it isn't mistaken for the amount.
   let rest = t, balance = null, limit = null;
   const limRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?)\\s*(?:credit\\s*)?(?:lmt|limit)\\s*(?:is|:|-)?\\s*' + CUR + '?\\s*:?\\s*' + NUM, 'i');
-  const balRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?|avbl\\.?|clr|clear|total|a\\/c)?\\s*bal(?:ance)?\\.?\\s*(?:is|:|-)?\\s*' + CUR + '?\\s*:?\\s*' + NUM, 'i');
+  const balRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?|avbl\\.?|clr|clear|total|a\\/c)?\\s*bal(?:ance)?\\.?\\s*(?:is|:)?\\s*(?:[-–]\\s+)?((?:-|−)(?!\\s))?\\s*' + CUR + '?\\s*:?\\s*((?:-|−)(?!\\s))?\\s*' + NUM + '(\\s*dr\\b)?', 'i');
   let m = rest.match(limRe);
   if (m) { limit = toNum_(m[1]); rest = rest.replace(m[0], ' '); }
   m = rest.match(balRe);
-  if (m) { balance = toNum_(m[1]); rest = rest.replace(m[0], ' '); }
+  if (m) { balance = toNum_(m[3]) * (m[1] || m[2] || m[4] ? -1 : 1); rest = rest.replace(m[0], ' '); }
 
   // Amount: "Rs 500", "INR 500", "₹500", or "debited by 500" / "credited with 500"
   let amount = null;
@@ -335,10 +343,18 @@ function buildSummary_() {
   const big = [];
   const past30 = {};   // day → spend, for "usual" daily spend
 
+  const manual = S.balances || {};   // { account: { value, at } } set by you in Settings
+  const r2m = x => Math.round(x * 100) / 100;
   for (const [when, account, kind, type, amount, merchant, balance, , , message] of rows) {
-    const a = accounts[account] || (accounts[account] = { name: account, kind, balance: null, flow: 0, updated: null });
-    a.flow = Math.round((a.flow + (type === 'credit' ? amount : -amount)) * 100) / 100;
-    if (balance !== '' && balance !== null) { a.balance = Number(balance); a.balanceAt = new Date(when).toISOString(); }
+    const a = accounts[account] || (accounts[account] = { name: account, kind, balance: null, flow: 0, updated: null, since: 0, estimated: false });
+    const t = new Date(when).getTime(), delta = type === 'credit' ? amount : -amount;
+    a.flow = r2m(a.flow + delta);
+    const man = manual[account];
+    if (balance !== '' && balance !== null && kind !== 'card' && !(man && man.at > t)) {
+      a.balance = Number(balance); a.balanceAt = new Date(when).toISOString(); a.since = 0; a.estimated = false; a.manual = false;
+    } else if (a.balance !== null && kind !== 'card' && !(man && man.at > t)) {
+      a.balance = r2m(a.balance + delta); a.since++; a.estimated = true;   // no balance in this message: work it out
+    } else if (kind === 'card' && balance !== '' && balance !== null) a.balance = Number(balance);
     a.updated = new Date(when).toISOString();
 
     const m = fmt(when, 'yyyy-MM'), day = Number(fmt(when, 'd'));
@@ -360,6 +376,14 @@ function buildSummary_() {
       lastMonthTotal += amount;
       if (day <= today) { lastMonthSoFar += amount; byCatLast[cat] = (byCatLast[cat] || 0) + amount; }
     }
+  }
+
+  for (const [name, man] of Object.entries(manual)) {
+    const a = accounts[name]; if (!a || !man || man.value === null || man.value === undefined) continue;
+    // bank sent a real balance after you typed yours → that one wins (already worked out above)
+    if (a.balanceAt && new Date(a.balanceAt).getTime() > man.at) continue;
+    const after = rows.filter(r => r[1] === name && new Date(r[0]).getTime() > man.at).reduce((s, r) => s + (r[3] === 'credit' ? r[4] : -r[4]), 0);
+    a.balance = r2m(Number(man.value) + after); a.balanceAt = new Date(man.at).toISOString(); a.estimated = after !== 0; a.manual = true;
   }
 
   const projected = today > 0 ? Math.round(spent / today * daysInMonth) : 0;

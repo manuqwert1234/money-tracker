@@ -349,7 +349,7 @@ function banks(d) {
   return list.map((name, i) => {
     const a = d.accounts.find(x => x.name === name);
     const at = a.balanceAt || a.updated;   // when the balance itself was last reported
-    return { name, color: `var(--s${(i % 5) + 1})`, balance: a.balance, updated: at,
+    return { name, color: `var(--s${(i % 5) + 1})`, balance: a.balance, updated: at, estimated: a.estimated, manual: a.manual,
              stale: !!at && Date.now() - new Date(at) > 45 * DAY };
   });
 }
@@ -363,13 +363,13 @@ function bankCard(d) {
   const total = B.reduce((s, b) => s + b.balance, 0);
   if (!all.length) return `<div class="card"><div class="sub">Money in bank</div><div class="hero">—</div><div class="sub">Waiting for a message that shows your balance</div></div>`;
   return `<div class="card" onclick="setTab('money')">
-    <div class="sub">Money in bank</div><div class="hero">${inr(total)}</div>
-    ${B.length > 1 ? `<div class="stack">${B.map(b => `<div style="flex:${Math.max(b.balance, total * 0.01)};background:${b.color}"></div>`).join('')}</div>` : ''}
+    <div class="sub">Money in bank</div><div class="hero ${total < 0 ? 'debit' : ''}">${total < 0 ? '−' + inr(-total) : inr(total)}</div>
+    ${B.filter(b => b.balance > 0).length > 1 ? `<div class="stack">${B.filter(b => b.balance > 0).map(b => `<div style="flex:${b.balance};background:${b.color}"></div>`).join('')}</div>` : ''}
     ${B.map(b => `<div class="row"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-      <div class="sub">updated ${ago(b.updated)}</div></div></div>
-      <div class="amt">${inr(b.balance)}</div></div>`).join('')}
+      <div class="sub">${b.manual ? 'you set it ' + ago(b.updated) : 'bank said ' + ago(b.updated)}${b.estimated ? ' · + payments since' : ''}</div></div></div>
+      <div class="amt ${b.balance < 0 ? 'debit' : ''}">${b.balance < 0 ? '−' + inr(-b.balance) : inr(b.balance)}</div></div>`).join('')}
     ${old.map(b => `<div class="row" style="opacity:.5"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-      <div class="sub">last seen ${new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · not counted</div></div></div>
+      <div class="sub">bank last said this in ${new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · not counted · <u onclick="event.stopPropagation();setTab('settings')">set it</u></div></div></div>
       <div class="amt">${inr(b.balance)}</div></div>`).join('')}
   </div>`;
 }
@@ -483,6 +483,12 @@ function settingsView(d) {
       <div class="field"><span>Warn me about payments over (₹)</span>${num('s_big', S.bigPayment)}</div>
       <div class="field"><span>Email me at 9pm if I'm overspending</span><input id="s_email" type="checkbox" ${S.emailAlerts ? 'checked' : ''}></div>
     </div>
+    <h1>Bank balances</h1>
+    <div class="card">
+      ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
+        <input data-bal="${esc(a.name)}" type="text" inputmode="text" autocomplete="off" placeholder="${a.balance === null ? 'unknown' : a.balance}"></div>`).join('') || '<p class="note">No banks yet.</p>'}
+    </div>
+    <p class="note">If a bank's balance looks wrong (for example your bank doesn't send it), type what your bank app shows, with a minus sign if it's negative. After that, every payment in or out updates it automatically.</p>
     <h1>Limits per category</h1>
     <div class="card">
       ${cats.map((c, i) => `<div class="field"><span>${esc(c)}</span><input data-cat="${esc(c)}" type="number" inputmode="numeric" min="0" step="100" value="${S.categoryBudgets[c] || ''}" placeholder="no limit"></div>`).join('')}
@@ -511,7 +517,10 @@ function saveSettings() {
   if (newPin !== document.getElementById('s_pin2').value.trim()) { msg.textContent = 'The two new PINs don’t match.'; return; }
   const categoryBudgets = {};
   document.querySelectorAll('input[data-cat]').forEach(i => { if (Number(i.value) > 0) categoryBudgets[i.dataset.cat] = Number(i.value); });
+  const setBalances = {};
+  document.querySelectorAll('input[data-bal]').forEach(i => { const v = i.value.trim().replace(/[₹,\s]/g, '').replace('−', '-'); if (v !== '' && isFinite(Number(v))) setBalances[i.dataset.bal] = Number(v); });
   const settings = {
+    setBalances,
     budget: Number(document.getElementById('s_budget').value) || 0,
     bigPayment: Number(document.getElementById('s_big').value) || 0,
     emailAlerts: document.getElementById('s_email').checked,
