@@ -44,11 +44,11 @@ It should appear in the Sheet within a few seconds.
 
 The `docs/` folder is the phone app. It's hosted free on **GitHub Pages**, so it opens full-screen with its own icon.
 
-1. Put this folder on GitHub (ask Claude to do it, or create a repo at github.com/new and upload the files).
-2. In the repo: **Settings → Pages → Branch: main, folder: /docs → Save**. Wait 1 minute.
-3. On your iPhone, open `https://<your-github-name>.github.io/<repo-name>/` in **Safari**.
-4. Tap **Share ⬆︎ → Add to Home Screen → Add**. The blue ₹ icon appears.
-5. Open it. The first time only, paste your **Web app URL** and **PIN**.
+**Your app is already live at: https://manuqwert1234.github.io/money-tracker/**
+
+1. On your iPhone, open that link in **Safari**.
+2. Tap **Share ⬆︎ → Add to Home Screen → Add**. The blue ₹ icon appears.
+3. Open it. The first time only, paste your **Web app URL** and **PIN**.
 
 From then on it syncs by itself: when you open it, when you come back to it, and every minute while it's open.
 The pill at the top shows "Synced just now". If it's orange, the numbers are more than 15 minutes old.
