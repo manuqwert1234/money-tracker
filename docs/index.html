@@ -150,6 +150,7 @@
   <p class="note" style="font-size:16px;margin:10px 0 28px">See your bank balance and spending, from your bank's emails and texts. Free and private: everything stays in your own Google account.</p>
   <a class="btn2" style="background:var(--bar);color:#fff;padding:15px;font-size:17px" href="https://script.google.com/macros/s/AKfycbzOf_LsEIhM3x3L22RPFRuunvwv-EUypl5MOybY-CBlVkglrd0Ok0dW1BMgNWZh9v_70Q/exec">Sign in with Google</a>
   <p class="note" style="margin-top:14px">Google will ask you to allow Money. If it says the app isn't verified, tap Advanced, then Go to Money.</p>
+  <p class="note android-only" style="margin-top:22px" hidden>On Android? <a href="android.html">Get the Android app</a> so bank texts work too.</p>
   <p class="note" style="margin-top:36px"><u onclick="document.getElementById('codeBox').hidden=false">I have a setup link</u></p>
   <div id="codeBox" hidden><input id="codeIn" placeholder="Paste it here" autocapitalize="off" autocorrect="off" spellcheck="false"><button onclick="useCode(document.getElementById('codeIn').value)">Continue</button></div>
   <p class="note" id="obErr"></p>
@@ -189,7 +190,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20260930203350';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20260930204915';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
@@ -217,7 +218,8 @@ function pasteCode() {
   if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(useCode).catch(() => document.getElementById('codeIn').focus());
   else document.getElementById('codeIn').focus();
 }
-function showOnboard() { ['lock', 'app', 'nav'].forEach(id => document.getElementById(id).hidden = true); document.getElementById('onboard').hidden = false; }
+function showOnboard() { if (/android/i.test(navigator.userAgent) && !window.MoneyAndroid) document.querySelectorAll('.android-only').forEach(e => e.hidden = false);
+  (function(){})(); ['lock', 'app', 'nav'].forEach(id => document.getElementById(id).hidden = true); document.getElementById('onboard').hidden = false; }
 // Opened from the setup page link (…#c=MNY1.xxx): use it straight away
 // Opened from the "Open Money" button after signing in (…?c=… or …#c=…): connect straight away, no PIN to type
 let FROM_SETUP = false;
