@@ -171,9 +171,13 @@ function api(action, extra) {
   // text/plain keeps it a "simple" request, so Apps Script answers without a CORS preflight
   // Google sometimes answers with a random "not found" page, so try up to 4 times.
   const body = JSON.stringify(Object.assign({ action, pin: PIN }, extra || {}));
-  const attempt = n => fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body })
-    .then(r => r.text()).then(t => JSON.parse(t))
-    .catch(e => { if (n >= 3) throw e; return new Promise(ok => setTimeout(ok, 700 * (n + 1))).then(() => attempt(n + 1)); });
+  const attempt = n => {
+    const ctl = window.AbortController ? new AbortController() : null;
+    const timer = ctl && setTimeout(() => ctl.abort(), 20000);   // never hang: give up on a request after 20s
+    return fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, signal: ctl && ctl.signal })
+      .then(r => r.text()).then(t => { clearTimeout(timer); return JSON.parse(t); })
+      .catch(e => { clearTimeout(timer); if (n >= 2) throw e; return new Promise(ok => setTimeout(ok, 800 * (n + 1))).then(() => attempt(n + 1)); });
+  };
   return attempt(0);
 }
 
@@ -209,6 +213,7 @@ function sync(fromLock) {
     DATA = d; SYNCED = Date.now();
     store.set('pin', PIN); store.set('url', URL_); store.set('data', JSON.stringify(d)); store.set('synced', String(SYNCED));
     render();
+    if (WANT_REFRESH) { WANT_REFRESH = false; refreshNow(); }
   }).catch(e => {
     BUSY = false; paintSync();
     if (!DATA) showLock('Couldn’t connect. Check the URL and your internet. (' + (e.message || e) + ')');
@@ -221,6 +226,18 @@ function showCreatePin() {
   document.getElementById('lockMsg').textContent = 'Welcome! Create a PIN to protect your money info.';
   document.getElementById('pin').placeholder = 'New PIN (4–8 digits)';
   document.getElementById('pin2').hidden = false;
+}
+
+// Opening the app → also pull in brand-new bank emails right now (not just every 5 minutes)
+let WANT_REFRESH = true, REFRESHING = false;
+function refreshNow() {
+  if (REFRESHING || !PIN) return;
+  REFRESHING = true; BUSY = true; paintSync();
+  api('refresh').then(d => {
+    REFRESHING = false; BUSY = false;
+    if (d && d.ok && d.added) { DATA = d; toast(d.added + ' new payment' + (d.added > 1 ? 's' : '')); store.set('data', JSON.stringify(d)); render(); }
+    SYNCED = Date.now(); store.set('synced', String(SYNCED)); paintSync();
+  }).catch(() => { REFRESHING = false; BUSY = false; paintSync(); });
 }
 
 function showLock(msg) {
@@ -676,9 +693,9 @@ function addManual() {
 // ── Auto-sync: on open, whenever you come back to the app, and every minute while it's open ──
 if (DATA) render();
 if (PIN && (IN_GOOGLE || URL_)) sync(); else { if (!DATA) showLock(); if (IN_GOOGLE || URL_) sync(true); }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
-window.addEventListener('focus', () => sync());
-setInterval(() => { if (!document.hidden) sync(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { WANT_REFRESH = true; sync(); } });
+
+setInterval(() => { if (!document.hidden) sync(); }, 120000);
 setInterval(paintSync, 30000);
 if ('serviceWorker' in navigator && !IN_GOOGLE && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 

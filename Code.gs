@@ -93,6 +93,7 @@ function saveSettings(pin, s) {
     if (v === '' || v === null) delete balances[k];
     else if (isFinite(Number(v))) balances[String(k).slice(0, 60)] = { value: Math.round(Number(v) * 100) / 100, at: Date.now() };
   }
+  clearCache_();
   props.setProperty('SETTINGS', JSON.stringify({
     balances,
     budget: Math.max(0, Math.round(Number(s.budget) || 0)),
@@ -257,6 +258,7 @@ function ingestMany_(items) {
     newRows.push([when, p.account, p.kind, p.type, p.amount, p.merchant, p.balance !== null ? p.balance : (p.limit !== null ? p.limit : ''), it.source, key, text.slice(0, 1500)]);
     results.push('added');
   }
+  if (newRows.length || unparsed.length) clearCache_();
   if (newRows.length) sh.getRange(sh.getLastRow() + 1, 1, newRows.length, TX_HEADERS.length).setValues(newRows);
   if (unparsed.length) { const u = sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']); u.getRange(u.getLastRow() + 1, 1, unparsed.length, 3).setValues(unparsed); }
   return results;
@@ -270,6 +272,12 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'bad json' }); }
   // The phone app asks for its numbers here (text/plain POST, so no CORS preflight).
   if (body.action === 'summary') return json_(getSummary(body.pin));
+  if (body.action === 'refresh') {   // app just opened: pull in brand-new bank emails now, then send fresh numbers
+    if (!pinOk_(body.pin)) return json_({ ok: false });
+    let added = 0;
+    try { added = scanGmail(true); } catch (e) {}
+    return json_(added ? Object.assign(getSummary(body.pin), { added }) : { ok: true, added: 0 });
+  }
   if (body.action === 'createPin') return json_(createPin(body.newPin));
   if (body.action === 'saveSettings') return json_(saveSettings(body.pin, body.settings || {}));
   if (body.action === 'setCategory') return json_(setCategory(body.pin, body.merchant, body.category));
@@ -277,6 +285,12 @@ function doPost(e) {
 
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
   if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
+  if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
+  if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
+    const t0 = Date.now();
+    try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
+    catch (err) { return json_({ ok: false, ms: Date.now() - t0, error: String(err && err.stack || err) }); }
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -299,24 +313,28 @@ function json_(obj) {
 }
 
 /** Runs every 10 minutes: reads new bank emails. */
-function scanGmail() {
+function scanGmail(fromApp) {
   const props = PropertiesService.getScriptProperties();
   const seen = new Set(JSON.parse(props.getProperty('SEEN') || '[]'));
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  if (!lock.tryLock(fromApp ? 1000 : 20000)) return 0;   // another check is already running
+  let added = 0;
   try {
+    const items = [];
     for (const thread of GmailApp.search(CONFIG.GMAIL_QUERY, 0, 50)) {
       for (const msg of thread.getMessages()) {
         const id = msg.getId();
         if (seen.has(id)) continue;
         seen.add(id);
-        ingest_(msg.getSubject() + '. ' + msg.getPlainBody(), 'email', msg.getDate());
+        items.push({ text: msg.getSubject() + '. ' + msg.getPlainBody(), source: 'email', when: msg.getDate() });
       }
     }
+    if (items.length) added = ingestMany_(items).filter(r => r === 'added').length;   // one sheet read for all
   } finally {
     lock.releaseLock();
   }
   props.setProperty('SEEN', JSON.stringify([...seen].slice(-800)));
+  return added;
 }
 
 function customCategories_() {
@@ -481,6 +499,7 @@ function importHistory() {
 
 /** Clears the imported emails and reads them again with the latest reader. SMS & manual rows are kept. */
 function rebuildFromEmails() {
+  clearCache_();
   const sh = sheet_(SHEET_TX, TX_HEADERS);
   if (sh.getLastRow() > 1) {
     const keep = sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).getValues().filter(r => r[7] !== 'email');
@@ -494,12 +513,19 @@ function rebuildFromEmails() {
   importHistory();
 }
 
-/** Called by the dashboard. */
+/** Called by the dashboard. The result is cached so repeat syncs are fast; any change clears it. */
 function getSummary(pin) {
   if (!PropertiesService.getScriptProperties().getProperty('PIN')) return { ok: false, needsPin: true };
   if (!pinOk_(pin)) return { ok: false };
-  return buildSummary_();
+  const cache = CacheService.getScriptCache();
+  const key = 'summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd');
+  const hit = cache.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  const d = buildSummary_();
+  try { cache.put(key, JSON.stringify(d), 300); } catch (e) {}   // too big for the cache → just skip caching
+  return d;
 }
+function clearCache_() { try { CacheService.getScriptCache().remove('summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd')); } catch (e) {} }
 
 /** Runs every evening: emails you only if something needs attention. */
 function dailyCheck() {
@@ -528,6 +554,7 @@ function setCategory(pin, merchant, category) {
   const rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues() : [];
   const i = rows.findIndex(r => String(r[0]).toLowerCase().trim() === kw);
   if (i >= 0) sh.getRange(i + 2, 2).setValue(category); else sh.appendRow([kw, category]);
+  clearCache_();
   return { ok: true };
 }
 
@@ -537,6 +564,16 @@ function addManual(pin, text) {
   return ingest_(text, 'manual');
 }
 
+/** Makes sure the Gmail check runs every 5 minutes (called automatically). */
+function ensureTriggers_() {
+  const t = ScriptApp.getProjectTriggers();
+  if (!t.some(x => x.getHandlerFunction() === 'scanGmail5')) {
+    t.filter(x => x.getHandlerFunction() === 'scanGmail').forEach(x => ScriptApp.deleteTrigger(x));
+    ScriptApp.newTrigger('scanGmail5').timeBased().everyMinutes(5).create();
+  }
+}
+function scanGmail5() { scanGmail(false); }
+
 /** RUN THIS ONCE. Creates sheets, the Gmail timer, and your secret token. */
 function setup() {
   sheet_(SHEET_TX, TX_HEADERS);
@@ -545,7 +582,7 @@ function setup() {
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('SECRET')) props.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('scanGmail').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('scanGmail5').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('dailyCheck').timeBased().everyDays(1).atHour(21).inTimezone(CONFIG.TIMEZONE).create();
   Logger.log('Your secret token for the iPhone Shortcut:  ' + props.getProperty('SECRET'));
 }
