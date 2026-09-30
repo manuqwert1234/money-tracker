@@ -172,6 +172,7 @@ const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 // Your server. Built in so you never have to paste it.
+const BUILD = '__BUILD__';   // replaced on publish; the app reloads itself when a newer build is live
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbx_89qVHduJzbO_V24J36aoPk6fkId-RgIDZ4agAk3h33-DLOeyvNLFz7gaWoz5fZM_/exec';
 let PIN = store.get('pin') || '', URL_ = store.get('url') || DEFAULT_URL, TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
@@ -191,10 +192,10 @@ function api(action, extra) {
   const body = JSON.stringify(Object.assign({ action, pin: PIN }, extra || {}));
   const attempt = n => {
     const ctl = window.AbortController ? new AbortController() : null;
-    const timer = ctl && setTimeout(() => ctl.abort(), 20000);   // never hang: give up on a request after 20s
+    const timer = ctl && setTimeout(() => ctl.abort(), 12000);   // never hang: give up on a request after 12s
     return fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, signal: ctl && ctl.signal })
       .then(r => r.text()).then(t => { clearTimeout(timer); return JSON.parse(t); })
-      .catch(e => { clearTimeout(timer); if (n >= 2) throw e; return new Promise(ok => setTimeout(ok, 800 * (n + 1))).then(() => attempt(n + 1)); });
+      .catch(e => { clearTimeout(timer); if (n >= 1) throw e; return new Promise(ok => setTimeout(ok, 800)).then(() => attempt(n + 1)); });
   };
   return attempt(0);
 }
@@ -835,7 +836,15 @@ function addManual() {
 // ── Auto-sync: on open, whenever you come back to the app, and every minute while it's open ──
 if (DATA) render();
 if (PIN && (IN_GOOGLE || URL_)) sync(); else { if (!DATA) showLock(); if (IN_GOOGLE || URL_) sync(true); }
-document.addEventListener('visibilitychange', () => { if (document.hidden) return; WANT_REFRESH = true; sync();
+// New version published? Reload once so the phone never runs an old copy.
+function checkUpdate() {
+  if (IN_GOOGLE || BUILD.startsWith('__')) return;
+  fetch('version.txt?' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
+    v = v.trim(); if (v && v !== BUILD && store.get('reloadedFor') !== v) { store.set('reloadedFor', v); location.reload(); }
+  }).catch(() => {});
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (document.hidden) return; checkUpdate(); WANT_REFRESH = true; sync();
   const p = Number(store.get('askPending') || 0);   // just came back from Ask Money: fetch the answer as soon as it lands
   if (p && Date.now() - p < 5 * 60000) { store.set('askPending', ''); [4000, 9000, 16000].forEach(ms => setTimeout(() => sync(), ms)); } });
 

@@ -1,6 +1,6 @@
 // Keeps the app shell on the phone so it opens instantly, even offline.
 // Your numbers are never cached here; the page keeps the last copy itself.
-const CACHE = 'money-v14';
+const CACHE = 'money-20260930195413';
 const SHELL = ['./', './index.html', './manifest.json', './icon-180.png'];
 
 self.addEventListener('install', e => {
@@ -16,7 +16,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Network first so updates show up; fall back to the cached shell when offline.
-  e.respondWith(fetch(e.request).then(r => {
+  // Always ask the network for fresh files (bypass the 10-minute browser cache); offline → cached copy
+  e.respondWith(fetch(e.request, { cache: 'no-store' }).then(r => {
     const copy = r.clone();
     caches.open(CACHE).then(c => c.put(e.request, copy));
     return r;
