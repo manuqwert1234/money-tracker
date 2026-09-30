@@ -39,17 +39,25 @@ function file_(name) { return UrlFetchApp.fetch(REPO + name + '?t=' + Date.now()
 /** Called from the page. Safe to call again: it continues where it stopped. */
 function install() {
   const P = PropertiesService.getUserProperties();
+  let step = 'start';
   try {
     if (P.getProperty('URL')) return { ok: true, url: P.getProperty('URL'), again: true };
+    step = 'creating your Money sheet';
     let sheetId = P.getProperty('SHEET');
+    if (sheetId) { try { SpreadsheetApp.openById(sheetId); } catch (e) { sheetId = null; P.deleteProperty('SHEET'); P.deleteProperty('SCRIPT'); } }
     if (!sheetId) { sheetId = SpreadsheetApp.create('Money').getId(); P.setProperty('SHEET', sheetId); }
+    step = 'creating the Money program';
     let scriptId = P.getProperty('SCRIPT');
     if (!scriptId) { scriptId = api_('post', 'projects', { title: 'Money', parentId: sheetId }).scriptId; P.setProperty('SCRIPT', scriptId); }
-    api_('put', 'projects/' + scriptId + '/content', { files: [
+    step = 'downloading the latest Money code';
+    const files = [
       { name: 'appsscript', type: 'JSON', source: file_('template/appsscript.json') },
       { name: 'Code', type: 'SERVER_JS', source: file_('Code.gs') },
       { name: 'Index', type: 'HTML', source: file_('Index.html') },
-    ] });
+    ];
+    step = 'copying the code into your account';
+    api_('put', 'projects/' + scriptId + '/content', { files });
+    step = 'publishing your Money app';
     const v = api_('post', 'projects/' + scriptId + '/versions', { description: 'Installed' });
     const dep = api_('post', 'projects/' + scriptId + '/deployments', { versionNumber: v.versionNumber, manifestFileName: 'appsscript', description: 'Money' });
     const url = ((dep.entryPoints || []).filter(e => e.entryPointType === 'WEB_APP')[0] || {}).webApp;
@@ -57,7 +65,8 @@ function install() {
     P.setProperty('URL', url.url);
     return { ok: true, url: url.url };
   } catch (e) {
-    return String(e.message) === 'API_OFF' ? { ok: false, apiOff: true, detail: String(e.detail || '').slice(0, 300) } : { ok: false, error: String(e.message || e) };
+    if (String(e.message) === 'API_OFF') return { ok: false, apiOff: true, detail: String(e.detail || '').slice(0, 300) };
+    return { ok: false, error: 'While ' + step + ': ' + String(e.message || e) };
   }
 }
 
