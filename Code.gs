@@ -295,7 +295,7 @@ function doPost(e) {
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
-    try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, inbox: JSON.parse(PropertiesService.getScriptProperties().getProperty('INBOX_LOG') || '[]'), lastScan: PropertiesService.getScriptProperties().getProperty('LAST_SCAN'), unparsed: d.unparsed, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
+    try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), sheetTz: SpreadsheetApp.getActive().getSpreadsheetTimeZone(), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, inbox: JSON.parse(PropertiesService.getScriptProperties().getProperty('INBOX_LOG') || '[]'), lastScan: PropertiesService.getScriptProperties().getProperty('LAST_SCAN'), unparsed: d.unparsed, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
     catch (err) { return json_({ ok: false, ms: Date.now() - t0, error: String(err && err.stack || err) }); }
   }
   const lock = LockService.getScriptLock();
@@ -525,11 +525,15 @@ function importHistory() {
 function rebuildFromEmails() {
   clearCache_();
   const sh = sheet_(SHEET_TX, TX_HEADERS);
+  let keep = [];
   if (sh.getLastRow() > 1) {
-    const keep = sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).getValues().filter(r => r[7] !== 'email');
+    keep = sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).getValues().filter(r => r[7] !== 'email');   // read as real instants
     sh.getRange(2, 1, sh.getLastRow() - 1, TX_HEADERS.length).clearContent();
-    if (keep.length) sh.getRange(2, 1, keep.length, TX_HEADERS.length).setValues(keep);
   }
+  // The Sheet must use India time, or times read back hours off (it was created in US time)
+  const ss = SpreadsheetApp.getActive();
+  if (ss.getSpreadsheetTimeZone() !== CONFIG.TIMEZONE) ss.setSpreadsheetTimeZone(CONFIG.TIMEZONE);
+  if (keep.length) sh.getRange(2, 1, keep.length, TX_HEADERS.length).setValues(keep);
   const u = sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
   if (u.getLastRow() > 1) u.getRange(2, 1, u.getLastRow() - 1, 3).clearContent();
   const props = PropertiesService.getScriptProperties();
@@ -608,6 +612,7 @@ function scanGmail5() { scanGmail(false); }
 function setup() {
   sheet_(SHEET_TX, TX_HEADERS);
   sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
+  SpreadsheetApp.getActive().setSpreadsheetTimeZone(CONFIG.TIMEZONE);
   const cats = sheet_('Categories', ['If the shop/person contains…', 'Put it in category']);
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('SECRET')) props.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
