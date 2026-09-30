@@ -5,7 +5,7 @@
 1. Go to **sheets.new** → a blank Google Sheet opens. Name it `Money`.
 2. Menu **Extensions → Apps Script**.
 3. Delete everything in `Code.gs` and paste in the contents of **Code.gs** from this folder.
-4. On the first lines, change `PIN: '1234'` to your own PIN.
+4. (Nothing to change here. You set your PIN and budget inside the app.)
 5. Click **+** next to "Files" → **HTML** → name it `Index` (exactly). Paste in **Index.html**.
 6. Click 💾 Save.
 7. At the top, pick **setup** from the function dropdown → click **Run**.
@@ -48,7 +48,7 @@ The `docs/` folder is the phone app. It's hosted free on **GitHub Pages**, so it
 
 1. On your iPhone, open that link in **Safari**.
 2. Tap **Share ⬆︎ → Add to Home Screen → Add**. The blue ₹ icon appears.
-3. Open it. The first time only, paste your **Web app URL** and **PIN**.
+3. Open it. The first time only, paste your **Web app URL**. It then asks you to **create a PIN**.
 
 From then on it syncs by itself: when you open it, when you come back to it, and every minute while it's open.
 The pill at the top shows "Synced just now". If it's orange, the numbers are more than 15 minutes old.
@@ -60,13 +60,12 @@ If you change `Index.html`, copy it to `docs/index.html` too.
 
 ## Part 4: Budgets and overspending alerts
 
-At the top of `Code.gs`, set:
-- `MONTHLY_BUDGET` is how much you want to spend per month.
-- `CATEGORY_BUDGETS` holds limits per category, e.g. `{ Food: 4000, Shopping: 3000 }`.
-- `BIG_PAYMENT` flags any single payment this big.
-
-Then **run `setup` again** (it adds the 9pm email check) and **Deploy → Manage deployments → ✏️ → New version**.
-You'll get an email at 9pm only on days you're overspending. Turn on Gmail notifications to see it on your phone.
+Tap **⚙️ Settings** in the app to change, at any time:
+- your monthly budget
+- limits per category (Food, Shopping, …)
+- the size of payment that counts as a "big payment" warning
+- the 9pm overspending email, on or off
+- your PIN
 
 Payments in the wrong category? In the Sheet's **Categories** tab, add a row, e.g. `ramesh` → `Rent`.
 

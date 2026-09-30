@@ -74,6 +74,11 @@
   input, textarea { -webkit-user-select:text; user-select:text; }
   input, textarea, button { font:inherit; width:100%; border-radius:10px; border:1px solid var(--line); padding:12px; background:var(--card); color:var(--text); }
   button { background:var(--bar); color:#fff; border:0; font-weight:600; margin-top:8px; cursor:pointer; }
+  .field { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .field:last-child { border-bottom:0; }
+  .field input { width:130px; text-align:right; padding:8px 10px; }
+  .field input[type=checkbox] { width:24px; height:24px; }
+  .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom) + 76px); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; }
   .note { font-size:13px; color:var(--muted); margin:8px 0; }
   #lock { max-width:320px; margin:20vh auto 0; text-align:center; }
 </style>
@@ -83,7 +88,9 @@
   <div style="font-size:56px">💸</div>
   <h1>Money</h1>
   <input id="url" type="url" placeholder="Paste your Web app URL (…/exec)" style="margin-bottom:8px">
+  <p class="note" id="lockMsg"></p>
   <input id="pin" type="password" inputmode="numeric" placeholder="PIN">
+  <input id="pin2" type="password" inputmode="numeric" placeholder="Type the new PIN again" style="margin-top:8px" hidden>
   <button onclick="unlock()">Open</button>
   <p class="note" id="err"></p>
 </div>
@@ -92,6 +99,7 @@
   <button data-t="home" onclick="setTab('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
   <button data-t="spend" onclick="setTab('spend')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>Spending</button>
   <button data-t="money" onclick="setTab('money')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Accounts</button>
+  <button data-t="settings" onclick="setTab('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </nav>
 
 <script>
@@ -112,6 +120,8 @@ function api(action, extra) {
   if (IN_GOOGLE) return new Promise((ok, bad) => {
     const r = google.script.run.withFailureHandler(bad);
     if (action === 'summary') r.withSuccessHandler(ok).getSummary(PIN);
+    else if (action === 'createPin') r.withSuccessHandler(ok).createPin(extra.newPin);
+    else if (action === 'saveSettings') r.withSuccessHandler(ok).saveSettings(PIN, extra.settings);
     else r.withSuccessHandler(x => ok({ ok: true, result: x })).addManual(PIN, extra.text);
   });
   // text/plain keeps it a "simple" request, so Apps Script answers without a CORS preflight
@@ -119,19 +129,30 @@ function api(action, extra) {
                        body: JSON.stringify(Object.assign({ action, pin: PIN }, extra || {})) }).then(r => r.json());
 }
 
+let CREATING = false;
 function unlock() {
   PIN = document.getElementById('pin').value.trim();
+  if (CREATING) {
+    if (!/^\d{4,8}$/.test(PIN)) { document.getElementById('err').textContent = 'Use 4 to 8 digits.'; return; }
+    if (PIN !== document.getElementById('pin2').value.trim()) { document.getElementById('err').textContent = 'The two PINs don’t match.'; return; }
+    api('createPin', { newPin: PIN }).then(r => {
+      if (!r.ok) { document.getElementById('err').textContent = r.error; return; }
+      CREATING = false; sync(true);
+    });
+    return;
+  }
   if (!IN_GOOGLE) URL_ = document.getElementById('url').value.trim();
   if (!IN_GOOGLE && !/^https:\/\/script\.google\.com\/.+\/exec/.test(URL_)) { document.getElementById('err').textContent = 'That doesn’t look like your Web app URL (it ends in /exec).'; return; }
   sync(true);
 }
 
 function sync(fromLock) {
-  if (BUSY || !PIN) return;
+  if (BUSY || (!PIN && !fromLock)) return;
   BUSY = true; paintSync();
   api('summary').then(d => {
     BUSY = false;
-    if (!d || !d.ok) { if (fromLock === true || !DATA) showLock('Wrong PIN'); paintSync(); return; }
+    if (d && d.needsPin) { showCreatePin(); paintSync(); return; }
+    if (!d || !d.ok) { if (fromLock === true || !DATA) showLock(PIN ? 'Wrong PIN' : ''); paintSync(); return; }
     DATA = d; SYNCED = Date.now();
     store.set('pin', PIN); store.set('url', URL_); store.set('data', JSON.stringify(d)); store.set('synced', String(SYNCED));
     render();
@@ -139,6 +160,14 @@ function sync(fromLock) {
     BUSY = false; paintSync();
     if (!DATA) showLock('Couldn’t connect. Check the URL and your internet. (' + (e.message || e) + ')');
   });
+}
+
+function showCreatePin() {
+  CREATING = true;
+  showLock('');
+  document.getElementById('lockMsg').textContent = 'Welcome! Create a PIN to protect your money info.';
+  document.getElementById('pin').placeholder = 'New PIN (4–8 digits)';
+  document.getElementById('pin2').hidden = false;
 }
 
 function showLock(msg) {
@@ -162,10 +191,10 @@ function render() {
   const app = document.getElementById('app'), nav = document.getElementById('nav');
   app.hidden = false; nav.hidden = false;
   nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
-  const title = { home: 'Money', spend: 'Spending', money: 'Accounts' }[TAB];
+  const title = { home: 'Money', spend: 'Spending', money: 'Accounts', settings: 'Settings' }[TAB];
   app.innerHTML = `
     <header><div class="title">${title}</div><button id="sync" class="sync" onclick="sync()"><span class="dot"></span><span></span></button></header>
-    <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : moneyView(d)}</div>`;
+    <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : TAB === 'settings' ? settingsView(d) : moneyView(d)}</div>`;
   paintSync();
   if (TAB === 'spend') wireChart(d);
 }
@@ -309,6 +338,64 @@ function moneyView(d) {
     </div>`;
 }
 
+// ───────── Settings tab ─────────
+function settingsView(d) {
+  const S = d.settings || { budget: d.budget, categoryBudgets: {}, bigPayment: 0, emailAlerts: true };
+  const cats = d.allCategories || d.categories.map(c => c.name);
+  const num = (id, v) => `<input id="${id}" type="number" inputmode="numeric" min="0" step="100" value="${v || ''}" placeholder="—">`;
+  return `
+    <h1>Budget</h1>
+    <div class="card">
+      <div class="field"><span>Monthly budget (₹)</span>${num('s_budget', S.budget)}</div>
+      <div class="field"><span>Warn me about payments over (₹)</span>${num('s_big', S.bigPayment)}</div>
+      <div class="field"><span>Email me at 9pm if I'm overspending</span><input id="s_email" type="checkbox" ${S.emailAlerts ? 'checked' : ''}></div>
+    </div>
+    <h1>Limits per category</h1>
+    <div class="card">
+      ${cats.map((c, i) => `<div class="field"><span>${esc(c)}</span><input data-cat="${esc(c)}" type="number" inputmode="numeric" min="0" step="100" value="${S.categoryBudgets[c] || ''}" placeholder="no limit"></div>`).join('')}
+    </div>
+    <p class="note">Leave a category empty for no limit.</p>
+    <h1>Change PIN</h1>
+    <div class="card">
+      <div class="field"><span>New PIN</span><input id="s_pin" type="password" inputmode="numeric" placeholder="unchanged"></div>
+      <div class="field"><span>New PIN again</span><input id="s_pin2" type="password" inputmode="numeric" placeholder="unchanged"></div>
+    </div>
+    <button id="s_save" onclick="saveSettings()">Save</button>
+    <p class="note" id="s_msg"></p>
+    <button onclick="signOut()" style="background:var(--card);color:var(--crit)">Lock app on this phone</button>`;
+}
+
+function saveSettings() {
+  const newPin = document.getElementById('s_pin').value.trim();
+  const msg = document.getElementById('s_msg');
+  if (newPin && !/^\d{4,8}$/.test(newPin)) { msg.textContent = 'PIN must be 4 to 8 digits.'; return; }
+  if (newPin !== document.getElementById('s_pin2').value.trim()) { msg.textContent = 'The two new PINs don’t match.'; return; }
+  const categoryBudgets = {};
+  document.querySelectorAll('input[data-cat]').forEach(i => { if (Number(i.value) > 0) categoryBudgets[i.dataset.cat] = Number(i.value); });
+  const settings = {
+    budget: Number(document.getElementById('s_budget').value) || 0,
+    bigPayment: Number(document.getElementById('s_big').value) || 0,
+    emailAlerts: document.getElementById('s_email').checked,
+    categoryBudgets, newPin: newPin || undefined,
+  };
+  const btn = document.getElementById('s_save'); btn.disabled = true; btn.textContent = 'Saving…';
+  api('saveSettings', { settings }).then(r => {
+    btn.disabled = false; btn.textContent = 'Save';
+    if (!r.ok) { msg.textContent = r.error || 'Couldn’t save'; return; }
+    if (newPin) { PIN = newPin; store.set('pin', PIN); }
+    toast('Saved ✓'); sync();
+  }).catch(e => { btn.disabled = false; btn.textContent = 'Save'; msg.textContent = 'No connection. Try again.'; });
+}
+
+function signOut() {
+  store.set('pin', ''); store.set('data', ''); PIN = ''; DATA = null; showLock('');
+}
+
+function toast(text) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = text;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 1800);
+}
+
 function addManual() {
   const text = document.getElementById('manual').value.trim();
   if (!text) return;
@@ -321,7 +408,7 @@ function addManual() {
 
 // ── Auto-sync: on open, whenever you come back to the app, and every minute while it's open ──
 if (DATA) render();
-if (PIN && (IN_GOOGLE || URL_)) sync(); else if (!DATA) showLock();
+if (PIN && (IN_GOOGLE || URL_)) sync(); else { if (!DATA) showLock(); if (IN_GOOGLE || URL_) sync(true); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
 window.addEventListener('focus', () => sync());
 setInterval(() => { if (!document.hidden) sync(); }, 60000);

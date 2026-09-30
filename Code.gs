@@ -6,7 +6,8 @@
  */
 
 const CONFIG = {
-  PIN: '1234',                 // <-- CHANGE THIS. You type it in the app to see your money.
+  // PIN, budget, category limits and big-payment size are set inside the app (⚙️ Settings).
+  // The values below are only the starting defaults.
   // Gmail search for bank alert emails. Add your bank's sender if you like, e.g. from:alerts@hdfcbank.net
   GMAIL_QUERY: 'newer_than:3d (debited OR credited OR spent OR "has been used" OR withdrawn)',
   TIMEZONE: 'Asia/Kolkata',
@@ -37,6 +38,53 @@ function categorize_(merchant, message, custom) {
   for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat;
   if (/@/.test(merchant || '') || /^[a-z .]+$/i.test(merchant || '')) return 'People (UPI)';
   return 'Other';
+}
+
+// ───────────────────────────── Settings (changed from the app) ─────────────────────────────
+
+function settings_() {
+  let saved = {};
+  try { saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('SETTINGS') || '{}'); } catch (e) {}
+  return {
+    budget: saved.budget != null ? Number(saved.budget) : CONFIG.MONTHLY_BUDGET,
+    categoryBudgets: saved.categoryBudgets || CONFIG.CATEGORY_BUDGETS || {},
+    bigPayment: saved.bigPayment != null ? Number(saved.bigPayment) : CONFIG.BIG_PAYMENT,
+    emailAlerts: saved.emailAlerts != null ? !!saved.emailAlerts : CONFIG.EMAIL_ALERTS,
+  };
+}
+
+function pinOk_(pin) {
+  const stored = PropertiesService.getScriptProperties().getProperty('PIN');
+  return !!stored && String(pin) === stored;
+}
+
+function validPin_(pin) { return /^\d{4,8}$/.test(String(pin || '')); }
+
+/** First time only: the app creates the PIN. After that it can only be changed with the old PIN. */
+function createPin(pin) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('PIN')) return { ok: false, error: 'PIN already set' };
+  if (!validPin_(pin)) return { ok: false, error: 'PIN must be 4–8 digits' };
+  props.setProperty('PIN', String(pin));
+  return { ok: true };
+}
+
+function saveSettings(pin, s) {
+  if (!pinOk_(pin)) return { ok: false, error: 'Wrong PIN' };
+  const props = PropertiesService.getScriptProperties();
+  if (s.newPin) {
+    if (!validPin_(s.newPin)) return { ok: false, error: 'PIN must be 4–8 digits' };
+    props.setProperty('PIN', String(s.newPin));
+  }
+  const cats = {};
+  for (const [k, v] of Object.entries(s.categoryBudgets || {})) if (k && Number(v) > 0) cats[String(k).slice(0, 40)] = Math.round(Number(v));
+  props.setProperty('SETTINGS', JSON.stringify({
+    budget: Math.max(0, Math.round(Number(s.budget) || 0)),
+    categoryBudgets: cats,
+    bigPayment: Math.max(0, Math.round(Number(s.bigPayment) || 0)),
+    emailAlerts: !!s.emailAlerts,
+  }));
+  return { ok: true };
 }
 
 const SHEET_TX = 'Transactions';
@@ -176,6 +224,8 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'bad json' }); }
   // The phone app asks for its numbers here (text/plain POST, so no CORS preflight).
   if (body.action === 'summary') return json_(getSummary(body.pin));
+  if (body.action === 'createPin') return json_(createPin(body.newPin));
+  if (body.action === 'saveSettings') return json_(saveSettings(body.pin, body.settings || {}));
   if (body.action === 'add') return json_({ ok: true, result: addManual(body.pin, body.text || '') });
 
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
@@ -237,6 +287,7 @@ function buildSummary_() {
   rows.sort((a, b) => new Date(a[0]) - new Date(b[0]));
   const custom = customCategories_();
   const tz = CONFIG.TIMEZONE;
+  const S = settings_();
   const fmt = (d, f) => Utilities.formatDate(new Date(d), tz, f);
 
   const now = new Date();
@@ -274,7 +325,7 @@ function buildSummary_() {
       const who = merchant || cat;
       byMerchant[who] = (byMerchant[who] || 0) + amount;
       if (fmt(when, 'yyyy-MM-dd') === todayKey) spentToday += amount;
-      if (amount >= CONFIG.BIG_PAYMENT) big.push({ when: new Date(when).toISOString(), amount, merchant: merchant || cat });
+      if (S.bigPayment > 0 && amount >= S.bigPayment) big.push({ when: new Date(when).toISOString(), amount, merchant: merchant || cat });
     } else if (m === lastMonth) {
       lastMonthTotal += amount;
       if (day <= today) { lastMonthSoFar += amount; byCatLast[cat] = (byCatLast[cat] || 0) + amount; }
@@ -282,7 +333,7 @@ function buildSummary_() {
   }
 
   const projected = today > 0 ? Math.round(spent / today * daysInMonth) : 0;
-  const budget = CONFIG.MONTHLY_BUDGET;
+  const budget = S.budget;
   const daysLeft = daysInMonth - today + 1;
   const safeToSpendPerDay = Math.max(0, Math.round((budget - spent + spentToday) / daysLeft));
   const usualDays = Object.values(past30);
@@ -293,7 +344,7 @@ function buildSummary_() {
   const alerts = [];
   if (spent > budget) alerts.push({ level: 'critical', text: `You've gone over your ${inr(budget)} budget by ${inr(spent - budget)} this month.` });
   else if (projected > budget * 1.05 && today >= 5) alerts.push({ level: 'warning', text: `At this pace you'll spend about ${inr(projected)} this month, which is ${inr(projected - budget)} over your budget. Try to keep to ${inr(safeToSpendPerDay)} a day.` });
-  for (const [cat, lim] of Object.entries(CONFIG.CATEGORY_BUDGETS || {})) {
+  for (const [cat, lim] of Object.entries(S.categoryBudgets)) {
     const v = byCat[cat] || 0;
     if (v > lim) alerts.push({ level: 'critical', text: `${cat}: ${inr(v)} spent. Your limit is ${inr(lim)}.` });
     else if (v > lim * 0.8) alerts.push({ level: 'warning', text: `${cat}: ${inr(v)} of your ${inr(lim)} limit used already.` });
@@ -314,7 +365,7 @@ function buildSummary_() {
     spent, received, spentToday, budget, projected, safeToSpendPerDay, usualPerDay,
     lastMonthSoFar, lastMonthTotal, today, daysInMonth,
     daily,
-    categories: sortObj(byCat).map(([name, v]) => ({ name, value: v, last: byCatLast[name] || 0, limit: (CONFIG.CATEGORY_BUDGETS || {})[name] || null })),
+    categories: sortObj(byCat).map(([name, v]) => ({ name, value: v, last: byCatLast[name] || 0, limit: S.categoryBudgets[name] || null })),
     merchants: sortObj(byMerchant).slice(0, 6).map(([name, v]) => ({ name, value: v })),
     alerts,
     recent: rows.slice(-40).reverse().map(r => ({
@@ -322,18 +373,21 @@ function buildSummary_() {
       category: r[3] === 'debit' ? categorize_(r[5], r[9], custom) : 'Money in',
     })),
     unparsed: unparsed ? Math.max(0, unparsed.getLastRow() - 1) : 0,
+    settings: S,
+    allCategories: CATEGORY_RULES.map(r => r[0]).concat(['People (UPI)', 'Other']),
   };
 }
 
 /** Called by the dashboard. */
 function getSummary(pin) {
-  if (String(pin) !== String(CONFIG.PIN)) return { ok: false };
+  if (!PropertiesService.getScriptProperties().getProperty('PIN')) return { ok: false, needsPin: true };
+  if (!pinOk_(pin)) return { ok: false };
   return buildSummary_();
 }
 
 /** Runs every evening: emails you only if something needs attention. */
 function dailyCheck() {
-  if (!CONFIG.EMAIL_ALERTS) return;
+  if (!settings_().emailAlerts) return;
   const d = buildSummary_();
   const serious = d.alerts.filter(a => a.level === 'critical' || a.level === 'warning');
   if (!serious.length) return;
@@ -351,7 +405,7 @@ function dailyCheck() {
 
 /** Lets you paste an old SMS in the app to add it by hand. */
 function addManual(pin, text) {
-  if (String(pin) !== String(CONFIG.PIN)) return 'bad pin';
+  if (!pinOk_(pin)) return 'bad pin';
   return ingest_(text, 'manual');
 }
 
@@ -366,7 +420,6 @@ function setup() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('scanGmail').timeBased().everyMinutes(10).create();
   ScriptApp.newTrigger('dailyCheck').timeBased().everyDays(1).atHour(21).inTimezone(CONFIG.TIMEZONE).create();
-  if (CONFIG.PIN === '1234') Logger.log('⚠️  Change CONFIG.PIN from 1234 before using this!');
   Logger.log('Your secret token for the iPhone Shortcut:  ' + props.getProperty('SECRET'));
 }
 
