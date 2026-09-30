@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d8dff"/><stop offset="1" stop-color="#1f56d6"/></linearGradient></defs>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <text x="256" y="330" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="300" font-weight="700" fill="#fff">₹</text>
+  <rect x="120" y="390" width="56" height="50" rx="10" fill="#fff" opacity=".55"/>
+  <rect x="228" y="370" width="56" height="70" rx="10" fill="#fff" opacity=".75"/>
+  <rect x="336" y="350" width="56" height="90" rx="10" fill="#fff"/>
+</svg>
