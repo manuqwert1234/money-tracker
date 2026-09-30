@@ -6,9 +6,16 @@
 const REPO = 'https://raw.githubusercontent.com/manuqwert1234/money-tracker/main/';
 const API = 'https://script.googleapis.com/v1/';
 
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Page').setTitle('Install Money')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+/**
+ * The install runs right here while the page loads (no background calls from the page).
+ * That matters when a browser is signed in to several Google accounts: background calls can run
+ * as the wrong account and fail with "You do not have permission".
+ */
+function doGet(e) {
+  const t = HtmlService.createTemplateFromFile('Page');
+  t.r = install();
+  t.self = ScriptApp.getService().getUrl();
+  return t.evaluate().setTitle('Install Money').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function api_(method, path, payload) {
