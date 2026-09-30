@@ -9,7 +9,7 @@ const CONFIG = {
   // PIN, budget, category limits and big-payment size are set inside the app (Settings).
   // The values below are only the starting defaults.
   // Gmail search for bank alert emails. Add your bank's sender if you like, e.g. from:alerts@hdfcbank.net
-  GMAIL_QUERY: 'newer_than:3d (debited OR credited OR spent OR "has been used" OR withdrawn)',
+  GMAIL_QUERY: 'newer_than:3d (debited OR credited OR spent OR "has been used" OR withdrawn OR "transaction alert" OR "txn" OR "UPI" OR "NEFT" OR "IMPS")',
   TIMEZONE: 'Asia/Kolkata',
   MONTHLY_BUDGET: 20000,       // <-- how much you want to spend per month (₹)
   // Optional limits per category, e.g. { Food: 4000, Shopping: 3000 }
@@ -110,13 +110,84 @@ const TX_HEADERS = ['When', 'Account', 'Kind', 'Type', 'Amount', 'Merchant', 'Ba
 
 // ───────────────────────────── Parser (pure, no Google services) ─────────────────────────────
 
+// Indian banks and card issuers: [name, words in the message or email, SMS sender codes (like VM-HDFCBK)]
+// Order matters: longer / more specific names first.
 const BANKS = [
-  ['HDFC', /hdfc/i], ['SBI', /\bsbi\b|state bank/i], ['ICICI', /icici/i], ['Axis', /axis/i],
-  ['Kotak', /kotak/i], ['PNB', /\bpnb\b|punjab national/i], ['BoB', /\bbob\b|bank of baroda/i],
-  ['Canara', /canara/i], ['Union', /union bank/i], ['IDFC', /idfc/i], ['Yes', /yes bank/i],
-  ['IndusInd', /indusind/i], ['Federal', /federal bank/i], ['AU', /\bau (small finance )?bank/i],
-  ['IDBI', /idbi/i], ['Indian Bank', /indian bank/i], ['IOB', /\biob\b|indian overseas/i],
+  ['SBI Card', /sbi ?card/i, /SBICRD|SBICRM|SBIPSG/],
+  ['SBI', /\bsbi\b|state bank of india/i, /SBI(INB|UPI|BNK|PSG|SMS|YON|CRD)?|CBSSBI|ATMSBI/],
+  ['HDFC', /hdfc/i, /HDFCBK|HDFCBN|HDFCCC/],
+  ['ICICI', /icici/i, /ICICIB|ICICIT|ICICIO/],
+  ['Axis', /axis bank/i, /AXISBK|AXISMR|AXISCC/],
+  ['Kotak', /kotak/i, /KOTAKB|KOTAK/],
+  ['IndusInd', /indusind/i, /INDUSB|INDUSI/],
+  ['Yes Bank', /yes bank/i, /YESBNK|YESBK/],
+  ['IDFC First', /idfc/i, /IDFCFB|IDFCBK/],
+  ['Bank of Baroda', /\bbob\b|bank of baroda|baroda/i, /BOBTXN|BOBSMS|BARODA|BOBCRD/],
+  ['PNB', /\bpnb\b|punjab national/i, /PNBSMS|PNBBNK|PUNBNK/],
+  ['Canara', /canara/i, /CANBNK|CANARA/],
+  ['Union Bank', /union bank/i, /UNIONB|UBINBK/],
+  ['Bank of India', /bank of india\b/i, /BOIIND|BOISMS|BOIBNK/],
+  ['Central Bank', /central bank of india/i, /CENTBK|CBOIND/],
+  ['Indian Bank', /indian bank\b/i, /INDBNK|INDBKS/],
+  ['Indian Overseas Bank', /\biob\b|indian overseas/i, /IOBCHN|IOBBNK|IOBSMS/],
+  ['UCO Bank', /\buco bank/i, /UCOBNK|UCOBK/],
+  ['Bank of Maharashtra', /bank of maharashtra|mahabank/i, /MAHABK|MAHAB/],
+  ['Punjab & Sind', /punjab (and|&) sind/i, /PSBANK|PSBSMS/],
+  ['IDBI', /idbi/i, /IDBIBK|IDBIBN/],
+  ['Federal', /federal bank/i, /FEDBNK|FEDBK|FEDFIB/],
+  ['South Indian Bank', /south indian bank/i, /SIBSMS|SIBBNK/],
+  ['Karnataka Bank', /karnataka bank/i, /KBLBNK|KARBNK/],
+  ['Karur Vysya', /karur vysya|\bkvb\b/i, /KVBANK|KVBNK/],
+  ['City Union', /city union bank|\bcub\b/i, /CUBANK|CUBLTD/],
+  ['Tamilnad Mercantile', /tamilnad mercantile|\btmb\b/i, /TMBANK|TMBLTD/],
+  ['CSB Bank', /\bcsb bank|catholic syrian/i, /CSBBNK|CSBANK/],
+  ['Dhanlaxmi', /dhanlaxmi/i, /DHANBK|DLBANK/],
+  ['J&K Bank', /j ?& ?k bank|jammu (and|&) kashmir bank/i, /JKBANK|JKBSMS/],
+  ['RBL', /\brbl\b|ratnakar/i, /RBLBNK|RBLCRD/],
+  ['DCB', /\bdcb bank/i, /DCBBNK|DCBANK/],
+  ['Bandhan', /bandhan/i, /BANDHN|BDNBNK/],
+  ['AU Bank', /\bau (small finance )?bank/i, /AUBANK|AUSFBL/],
+  ['Equitas', /equitas/i, /EQUTAS|EQUITS|ESFBNK/],
+  ['Ujjivan', /ujjivan/i, /UJJIVN|UJVNSF/],
+  ['ESAF', /esaf/i, /ESAFBK|ESAFSF/],
+  ['Jana Bank', /jana (small finance )?bank/i, /JANABK|JANASF/],
+  ['Suryoday', /suryoday/i, /SURYOD|SRYDBK/],
+  ['Utkarsh', /utkarsh/i, /UTKSFB|UTKRSH/],
+  ['Capital SFB', /capital small finance/i, /CAPSFB/],
+  ['Fincare', /fincare/i, /FINCAR/],
+  ['North East SFB', /north east small finance/i, /NESFBL/],
+  ['Shivalik', /shivalik/i, /SHIVLK/],
+  ['Unity Bank', /unity (small finance )?bank/i, /UNITYB/],
+  ['Airtel Payments Bank', /airtel payments bank/i, /AIRBNK|AIRTLB/],
+  ['Paytm Payments Bank', /paytm payments bank/i, /PAYTMB|PYTMBK/],
+  ['India Post Payments Bank', /india post payments|\bippb\b/i, /IPPBNK|IPPBMS/],
+  ['Fino Payments Bank', /fino payments/i, /FINOBK|FINOPB/],
+  ['Jio Payments Bank', /jio payments bank/i, /JIOPBK/],
+  ['NSDL Payments Bank', /nsdl payments/i, /NSDLPB/],
+  ['Saraswat', /saraswat/i, /SARASW|SRSWTB/],
+  ['Cosmos', /cosmos bank/i, /COSMOS|COSBNK/],
+  ['SVC Bank', /\bsvc (co-operative )?bank|shamrao vithal/i, /SVCBNK|SVCBKL/],
+  ['Abhyudaya', /abhyudaya/i, /ABHYDY/],
+  ['TJSB', /\btjsb\b/i, /TJSBNK|TJSBSB/],
+  ['NKGSB', /nkgsb/i, /NKGSBB/],
+  ['Kerala Bank', /kerala bank|kerala state co-?operative/i, /KSCBNK|KERBNK/],
+  ['Kerala Gramin', /kerala gramin/i, /KGBANK|KRLGBK/],
+  ['Karnataka Gramin', /karnataka gramin/i, /KAGBNK/],
+  ['Andhra Pradesh Grameena', /andhra pradesh grameena|apgvb/i, /APGVBK|APGVB/],
+  ['Baroda UP Gramin', /baroda u\.?p\.? (bank|gramin)/i, /BUPGBK/],
+  ['Standard Chartered', /standard chartered|\bsc bank/i, /SCBANK|STANCB/],
+  ['HSBC', /hsbc/i, /HSBCIN|HSBCBK/],
+  ['Citi', /\bciti ?bank|\bciti\b/i, /CITIBK|CITIBA/],
+  ['DBS', /\bdbs\b|digibank/i, /DBSBNK|DIGIBK/],
+  ['Deutsche Bank', /deutsche bank/i, /DEUTSC/],
+  ['American Express', /american express|\bamex\b/i, /AMEXIN|AMEXBK/],
+  ['OneCard', /\bonecard\b/i, /ONECRD|OneCrd/],
+  ['Slice', /\bslice\b/i, /SLCEIT|SLICEE/],
+  ['Jupiter', /\bjupiter\b/i, /JUPITR/],
+  ['Fi', /\bfi money\b|federal bank.*\bfi\b/i, /FIMONY/],
+  ['Niyo', /\bniyo\b/i, /NIYOIN/],
 ];
+
 
 const NUM = '([\\d,]+(?:\\.\\d{1,2})?)';
 const CUR = '(?:rs\\.?|inr|₹)';
@@ -170,7 +241,9 @@ function parseBankMessage(text) {
 
   let bank = '';
   const noVpa = t.replace(/\S+@\S+/g, ' ');   // "okaxis" in a UPI id is not Axis Bank
-  for (const [name, re] of BANKS) if (re.test(noVpa)) { bank = name; break; }
+  const head = t.slice(0, 40).toUpperCase();    // SMS arrives as "VM-HDFCBK: …" or "CANBNK-S …"
+  for (const [name, , codes] of BANKS) if (codes && new RegExp('(^|[^A-Z])(' + codes.source + ')').test(head)) { bank = name; break; }
+  if (!bank) for (const [name, re] of BANKS) if (re.test(noVpa)) { bank = name; break; }
   if (!bank) {   // any other bank: "ESAF Small Finance Bank", "Federal Bank", "XYZ Co-operative Bank"…
     const g = noVpa.match(/\b([A-Z][A-Za-z&]{1,20}(?:\s[A-Z][A-Za-z&]{1,20})?)\s+(?:small finance\s+|co-?operative\s+|payments\s+)?bank\b/i);
     if (g && !/^(your|the|dear|our|this|of|to|from|with|and|net|internet|mobile|any|by|at)$/i.test(g[1].split(' ')[0])) bank = g[1].split(' ')[0].toUpperCase() === g[1].split(' ')[0] ? g[1].split(' ')[0] : g[1].split(' ')[0][0].toUpperCase() + g[1].split(' ')[0].slice(1).toLowerCase();
@@ -536,7 +609,7 @@ function importHistory() {
   const started = Date.now();
   let pageToken = props.getProperty('IMPORT_PAGE') || undefined, start = Number(props.getProperty('IMPORT_AT') || 0);
   let added = Number(props.getProperty('IMPORT_ADDED') || 0);
-  const query = 'newer_than:3y (debited OR credited OR spent OR "has been used" OR withdrawn OR "transaction alert")';
+  const query = 'newer_than:3y (debited OR credited OR spent OR "has been used" OR withdrawn OR "transaction alert" OR "txn alert" OR "UPI txn" OR NEFT OR IMPS OR RTGS)';
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {

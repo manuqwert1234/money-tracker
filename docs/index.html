@@ -88,7 +88,27 @@
   ol.steps { margin:6px 0 10px; padding-left:20px; line-height:1.5; font-size:15px; } ol.steps li { margin:6px 0; }
   .code { display:block; font:13px ui-monospace, Menlo, monospace; background:var(--track); padding:8px; border-radius:8px; margin-top:4px; word-break:break-word; }
   a.btn2 { display:block; text-align:center; padding:12px; border-radius:10px; margin-top:8px; background:var(--track); color:var(--bar); font-weight:600; text-decoration:none; }
-    * { box-sizing:border-box; }
+    .greet { font-size:15px; color:var(--muted); margin:-2px 0 12px; display:flex; flex-direction:column; }
+  .greet span { font-size:13px; }
+  .eyebrow { font-size:13px; font-weight:600; color:var(--muted); margin-bottom:6px; letter-spacing:.01em; }
+  .headline { font-size:24px; font-weight:700; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+  .line { font-size:15px; margin-top:4px; line-height:1.4; } .line b { font-weight:650; } .line.muted { color:var(--muted); }
+  .meter.thin { height:6px; margin:12px 0 4px; }
+  .mini-cats { margin-top:14px; border-top:1px solid var(--line); padding-top:6px; }
+  .mc { padding:7px 0; } .mc-top { display:flex; justify-content:space-between; font-size:15px; } .mc-top .sw { margin-right:8px; }
+  .more { color:var(--bar); font-size:15px; font-weight:500; padding:10px 0 0; cursor:pointer; } .more span { float:right; color:var(--muted); }
+  .card.tap { cursor:pointer; }
+  .hero-card .mc-hero { font-size:40px; }
+  .dayhead { display:flex; justify-content:space-between; font-size:13px; font-weight:600; color:var(--muted); padding:14px 0 4px; border-bottom:1px solid var(--line); }
+  .dayhead:first-of-type { padding-top:4px; }
+  .tx { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .tx:last-child { border-bottom:0; }
+  .tx .av { width:38px; height:38px; border-radius:50%; background:var(--track); color:var(--text); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:650; flex:none; letter-spacing:.02em; }
+  .tx .nm { font-size:16px; } .tx .amt { font-size:16px; }
+  .tx.new { animation:flash 2.4s ease-out; border-radius:8px; }
+  .acct { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .acct.old { opacity:.55; }
+  * { box-sizing:border-box; }
   html { background:var(--bg); }
   body { margin:0 auto; background:var(--bg); color:var(--text); font:16px -apple-system, system-ui, sans-serif; max-width:560px;
          padding:calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 90px); -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
@@ -190,7 +210,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20260930204915';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20260930211346';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
@@ -343,22 +363,52 @@ function render() {
 
 // ───────── Home tab ─────────
 function homeView(d) {
-  const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0;
-  const top = d.alerts[0];
+  const h = new Date().getHours();
+  const hello = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   return `
-    ${moneyChart(d)}${askCard(d)}${bankList(d)}
-    ${top ? `<div class="alert ${top.level}" onclick="setTab('spend')"><b>${ICON[top.level]}</b><span>${esc(top.text)}${d.alerts.length > 1 ? ` <u>+${d.alerts.length - 1} more</u>` : ''}</span></div>` : ''}
-    <div class="card" onclick="setTab('spend')">
-      <div style="display:flex;justify-content:space-between"><span class="sub">Spent this month</span><span class="sub">${inr(Math.max(0, d.budget - d.spent))} left</span></div>
-      <div class="big">${inr(d.spent)} <span class="sub" style="font-weight:400">of ${inr(d.budget)}</span></div>
-      <div class="meter ${d.spent > d.budget ? 'over' : ''}"><div class="fill" style="width:${pct}%"></div><div class="pace" style="left:calc(${d.today / d.daysInMonth * 100}% - 1px)"></div></div>
-    </div>
-    <div class="two">
-      <div class="card"><div class="sub">Today</div><div class="big">${inr(d.spentToday)}</div></div>
-      <div class="card"><div class="sub">Safe / day</div><div class="big">${inr(d.safeToSpendPerDay)}</div></div>
-    </div>
-    <h1>Latest</h1>
-    <div class="card">${(d.history || []).slice(-8).reverse().map(histRow).join('') || '<p class="note">Waiting for your first bank SMS…</p>'}</div>`;
+    <div class="greet">${hello}<span>${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div>
+    ${moneyChart(d)}
+    ${monthCard(d)}
+    ${recentCard(d)}
+    ${bankList(d)}
+    ${askCard(d)}`;
+}
+
+// "This month" in plain words, with the top 3 categories
+function monthCard(d) {
+  const over = d.budget && d.spent > d.budget, left = Math.max(0, d.budget - d.spent), daysLeft = d.daysInMonth - d.today + 1;
+  const status = !d.budget ? '' : over ? `<b>${inr(d.spent - d.budget)}</b> over your ${inr(d.budget)} budget`
+    : `<b>${inr(left)}</b> left of ${inr(d.budget)} · about ${inr(d.safeToSpendPerDay)} a day for ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+  const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0, pace = d.today / d.daysInMonth * 100;
+  const cats = (d.categories || []).slice(0, 3), cmax = Math.max(1, ...cats.map(c => c.value));
+  const vs = d.lastMonthSoFar > 0 ? Math.round((d.spent / d.lastMonthSoFar - 1) * 100) : null;
+  return `<div class="card tap" onclick="setTab('spend')">
+    <div class="eyebrow">This month</div>
+    <div class="headline">You've spent ${inr(d.spent)}</div>
+    ${status ? `<div class="line">${status}</div>` : ''}
+    ${d.budget ? `<div class="meter thin ${over ? 'over' : ''}"><div class="fill" style="width:${pct}%"></div><div class="pace" style="left:calc(${pace}% - 1px)"></div></div>` : ''}
+    ${vs !== null && Math.abs(vs) >= 5 ? `<div class="line muted">${Math.abs(vs)}% ${vs > 0 ? 'more' : 'less'} than this time last month</div>` : ''}
+    ${cats.length ? `<div class="mini-cats">${cats.map(c => `<div class="mc"><div class="mc-top"><span><span class="sw" style="background:${CAT_COLOR[catOf(c.name)]}"></span>${esc(c.name)}</span><span class="amt">${inr(c.value)}</span></div>
+      <div class="pbar"><div style="width:${c.value / cmax * 100}%;background:${CAT_COLOR[catOf(c.name)]}"></div></div></div>`).join('')}</div>` : ''}
+    <div class="more">See spending <span>›</span></div>
+  </div>`;
+}
+
+// Recent payments, grouped by day like a bank statement
+function recentCard(d) {
+  const list = (d.history || []).slice(-14).reverse();
+  if (!list.length) return `<div class="card"><div class="eyebrow">Recent</div><p class="note">Your payments appear here as your bank sends texts or emails.</p></div>`;
+  return `<div class="card"><div class="eyebrow">Recent</div>${dayGroups(list)}<div class="more" onclick="setTab('money')">See all <span>›</span></div></div>`;
+}
+function dayLabel(t) {
+  const d0 = new Date(t); d0.setHours(0, 0, 0, 0); const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - d0) / DAY);
+  return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : d0.toLocaleDateString('en-IN', diff < 7 ? { weekday: 'long' } : { day: 'numeric', month: 'short', year: d0.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+}
+function dayGroups(list) {
+  const groups = []; list.forEach(t => { const k = dayLabel(t[0]); const g = groups[groups.length - 1]; if (g && g.k === k) g.items.push(t); else groups.push({ k, items: [t] }); });
+  return groups.map(g => { const out = g.items.filter(t => !t[2]).reduce((s, t) => s + t[3], 0);
+    return `<div class="dayhead"><span>${g.k}</span><span>${out ? '−' + inr(out) : ''}</span></div>${g.items.map(histRow).join('')}`; }).join('');
 }
 
 // ───────── Spending tab (Apple-style) ─────────
@@ -522,12 +572,22 @@ function wireChart(d) {
 
 // One transaction row in History/Spending. Tap it to change its category.
 let SEEN_T = Number(store.get('seenT') || 0), NEW_SINCE = SEEN_T;
+function initials(name) {
+  const w = String(name || '').replace(/@.*/, '').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).filter(x => !/^(mr|mrs|ms|dr)$/i.test(x));
+  return ((w[0] || '?')[0] + (w[1] ? w[1][0] : (w[0] || '').slice(1, 2))).toUpperCase();
+}
+function niceName(m) {   // "paytmqr603l1d@ptys" → "Paytm QR", "chaiwala@okaxis" → "chaiwala"
+  if (!m) return '';
+  if (/paytmqr|^q\d+@|bharatpe|gpay-\d|okbizaxis/i.test(m)) return 'Shop (QR payment)';
+  if (/@/.test(m)) return m.split('@')[0].replace(/[._-]+/g, ' ').replace(/\d{6,}/g, '').trim() || m;
+  return m.replace(/\s+/g, ' ').replace(/\b([A-Z])([A-Z]+)\b/g, (x, a, b) => a + b.toLowerCase());
+}
 function histRow(t) {
-  const m = t[4] || '';
-  return `<div class="row ${NEW_SINCE && t[0] > NEW_SINCE ? 'new' : ''}" onclick="event.stopPropagation(); pickCat(${JSON.stringify(m).replace(/"/g, '&quot;')}, '${catOf(t[6])}')">
-    <div style="display:flex;gap:10px;align-items:center;min-width:0"><span class="sw" style="background:${t[2] ? 'var(--in)' : CAT_COLOR[catOf(t[6])]}"></span>
-    <div style="min-width:0"><div class="ell">${esc(m || (t[2] ? 'Received' : 'Payment'))}</div><div class="sub">${t[2] ? 'Money in' : esc(catOf(t[6]))} · ${esc(short(t[1]))} · ${new Date(t[0]).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</div></div></div>
-    <div class="amt ${t[2] ? 'credit' : 'debit'}">${t[2] ? '+' : '−'}${inr(t[3])}</div></div>`;
+  const m = t[4] || '', name = niceName(m) || (t[2] ? 'Money received' : 'Payment');
+  return `<div class="tx ${NEW_SINCE && t[0] > NEW_SINCE ? 'new' : ''}" onclick="event.stopPropagation(); pickCat(${JSON.stringify(m).replace(/"/g, '&quot;')}, '${catOf(t[6])}')">
+    <div class="av">${esc(initials(name))}</div>
+    <div class="grow"><div class="ell nm">${esc(name)}</div><div class="sub ell">${t[2] ? 'Money in' : esc(catOf(t[6]))} · ${esc(short(t[1]))} · ${new Date(t[0]).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div></div>
+    <div class="amt ${t[2] ? 'credit' : ''}">${t[2] ? '+' : '−'}${inr(t[3])}</div></div>`;
 }
 
 function pickCat(merchant, current) {
@@ -618,8 +678,8 @@ function moneyChart(d) {
       list = bt.length ? `<div class="card" style="margin-top:10px">${bt.slice().reverse().slice(0, 12).map(histRow).join('')}${bt.length > 12 ? `<p class="note">+${bt.length - 12} more</p>` : ''}</div>` : '';
     }
   }
-  return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center"><span class="sub">${SCRUB ? 'Money in bank then' : 'Money in bank'}</span>${SCRUB ? `<button class="mc-now" onclick="SCRUB=null;render()">Now</button>` : ''}</div>
+  return `<div class="card hero-card">
+    <div style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow" style="margin:0">${SCRUB ? 'Balance then' : 'Balance'}</span>${SCRUB ? `<button class="mc-now" onclick="SCRUB=null;render()">Now</button>` : ''}</div>
     <div class="mc-hero ${S.now < 0 && !SCRUB ? 'debit' : ''}" id="mcHero">${hero}</div>
     <div class="mc-sub" id="mcSub">${sub}</div>
     <div class="mc-chart" id="mcChart"></div>
@@ -627,12 +687,17 @@ function moneyChart(d) {
   </div>${list}`;
 }
 
+let SHOW_OLD = false;
 function bankList(d) {
   const all = banks(d).filter(b => b.balance !== null);
   if (!all.length) return '';
-  return `<div class="card">${all.map(b => `<div class="row" style="${b.stale ? 'opacity:.5' : ''}"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-    <div class="sub">${b.stale ? 'bank last said this in ' + new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) + ' · not counted · <u onclick="event.stopPropagation();setTab(\'settings\')">set it</u>' : (b.manual ? 'you set it ' : 'bank said ') + ago(b.updated) + (b.estimated ? ' · + payments since' : '')}</div></div></div>
-    <div class="amt ${b.balance < 0 ? 'debit' : ''}">${money(b.balance)}</div></div>`).join('')}</div>`;
+  const fresh = all.filter(b => !b.stale), old = all.filter(b => b.stale);
+  const row = b => `<div class="acct ${b.stale ? 'old' : ''}"><span class="sw lg" style="background:${b.color}"></span>
+    <div class="grow"><div>${esc(short(b.name))}</div><div class="sub">${b.stale ? 'last balance ' + new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) + ' · not counted · <u onclick="event.stopPropagation();setTab(\'settings\')">update</u>' : (b.manual ? 'set by you ' : 'from your bank ') + ago(b.updated) + (b.estimated ? ', plus payments since' : '')}</div></div>
+    <div class="amt ${b.balance < 0 ? 'debit' : ''}">${money(b.balance)}</div></div>`;
+  return `<div class="card"><div class="eyebrow">Accounts</div>${fresh.map(row).join('')}
+    ${old.length ? (SHOW_OLD ? old.map(row).join('') + `<div class="more" onclick="SHOW_OLD=false;render()">Hide older balances</div>`
+      : `<div class="more" onclick="SHOW_OLD=true;render()">${old.length} older balance${old.length > 1 ? 's' : ''}, not counted <span>›</span></div>`) : ''}</div>`;
 }
 
 function wireMoney(d) {
