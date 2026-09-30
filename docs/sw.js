@@ -1,6 +1,6 @@
 // Keeps the app shell on the phone so it opens instantly, even offline.
 // Your numbers are never cached here; the page keeps the last copy itself.
-const CACHE = 'money-v7';
+const CACHE = 'money-v8';
 const SHELL = ['./', './index.html', './manifest.json', './icon-180.png'];
 
 self.addEventListener('install', e => {

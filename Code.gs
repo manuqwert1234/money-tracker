@@ -13,30 +13,38 @@ const CONFIG = {
   TIMEZONE: 'Asia/Kolkata',
   MONTHLY_BUDGET: 20000,       // <-- how much you want to spend per month (₹)
   // Optional limits per category, e.g. { Food: 4000, Shopping: 3000 }
-  CATEGORY_BUDGETS: { Food: 4000, Shopping: 3000 },
+  CATEGORY_BUDGETS: { 'Food & drinks': 4000, 'Online delivery': 3000 },
   BIG_PAYMENT: 5000,           // warn about any single payment at least this big
   EMAIL_ALERTS: true,          // email you at 9pm if you're overspending
 };
 
-// Keyword → category. First match wins. Add your own in the "Categories" tab of the Sheet.
+// ───────────────────────────── Classifier ─────────────────────────────
+// Looks at the shop name AND the UPI id (e.g. "blinkit.payu@hdfcbank"). First match wins.
+// You can correct any payment in the app; those corrections are saved in the "Categories" tab and always win.
+const CATEGORIES = ['Food & drinks', 'Online delivery', 'Shopping', 'Transport', 'Bills & subscriptions', 'Local shops', 'People', 'Health', 'Other'];
+
 const CATEGORY_RULES = [
-  ['Food', /swiggy|zomato|restaurant|cafe|café|chai|\btea\b|coffee|swiggy insta|bakery|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|haldiram|food|canteen|\bmess\b|hotel|dhaba|grand|bakes|eatclub|box8/i],
-  ['Groceries', /blinkit|zepto|bigbasket|instamart|dmart|jiomart|grocer|kirana|supermarket|store|stores|\bfresh\b|\bmilk\b|dairy|vendolite|nature'?s basket|ratnadeep|more retail|spar|reliance smart/i],
-  ['Transport', /uber|ola|rapido|\bmetro\b|irctc|railway|redbus|petrol|fuel|hpcl|iocl|bpcl|indian oil|shell|fastag|parking|namma yatri|bmtc|makemytrip|indigo|air india|\bcabs?\b|\bauto\b/i],
-  ['Shopping', /amazon|flipkart|myntra|ajio|meesho|nykaa|croma|reliance digital|decathlon|ikea|lenskart|tata cliq|snapdeal|zara|h&m|mall/i],
-  ['Bills & recharge', /airtel|jio|\bvi\b|vodafone|bsnl|recharge|electricity|bescom|tneb|msedcl|\bwater\b|\bgas\b|broadband|act fibernet|dth|tata ?play|insurance|\blic\b|\brent\b|society|\bemi\b|aws/i],
-  ['Fun & subscriptions', /netflix|hotstar|spotify|prime|youtube|bookmyshow|pvr|inox|steam|playstation|xbox|apple|google play|sonyliv|zee5|gaming|dream11/i],
-  ['Health', /pharma|medical|apollo|medplus|1mg|pharmeasy|netmeds|hospital|clinic|doctor|diagnostic|\blabs?\b|cult\.?fit|gym/i],
-  ['Education', /college|school|university|course|udemy|coursera|\bfees?\b|exam|\bbooks?\b/i],
-  ['Cash', /\batm\b|cash withdrawal|withdrawn/i],
+  // quick-commerce & grocery delivery apps (checked before food so "Swiggy Instamart" isn't "Food")
+  ['Online delivery', /blinkit|grofers|zepto|instamart|swiggy ?insta|bigbasket|bbnow|bb ?daily|dunzo|jiomart|flipkart ?minutes|amazon ?fresh|amazon ?now|milkbasket|country ?delight|licious|freshtohome|kpn ?fresh|porter\b|swiggy ?genie|zomato ?hyperpure/i],
+  ['Food & drinks', /swiggy|bundl|zomato|eatsure|eatclub|box8|faasos|behrouz|restaurant|resto|cafe|café|\bchai\b|\btea\b|coffee|bakery|bakes|biryani|dominos|domino|pizza|mcdonald|kfc|burger|starbucks|chaayos|haldiram|\bfoods?\b|canteen|\bmess\b|hotel|dhaba|\bgrand\b|kitchen|juice|ice ?cream|sweets|\bbar\b|pub|brew|itc\b|evergreen fo/i],
+  ['Shopping', /amazon|amzn|flipkart|myntra|ajio|meesho|nykaa|croma|reliance ?digital|decathlon|ikea|lenskart|tata ?cliq|snapdeal|zara|h ?& ?m\b|uniqlo|louis ?philip|van ?heusen|allen ?solly|peter ?england|max ?fashion|westside|pantaloons|lifestyle|\bmall\b|apple ?store|boat|noise/i],
+  ['Transport', /uber|\bola\b|olacabs|rapido|namma ?yatri|bluesmart|\bmetro\b|metropolitan|bmrcl|kmrl|irctc|railway|redbus|abhibus|petrol|fuel|hpcl|iocl|bpcl|indian ?oil|\bshell\b|fastag|parking|bmtc|ksrtc|makemytrip|goibibo|ixigo|indigo|air ?india|akasa|vistara|\bcabs?\b|\bauto\b|yulu|bounce/i],
+  ['Bills & subscriptions', /airtel|\bjio\b|^vi\b|vodafone|bsnl|recharge|electricity|bescom|kseb|tneb|msedcl|\bwater\b|\bgas\b|indane|bharat ?gas|broadband|act ?fibernet|\bdth\b|tata ?play|insurance|\blic\b|\brent\b|society|\bemi\b|\baws\b|google|apple\.com|icloud|netflix|hotstar|spotify|prime ?video|youtube|sonyliv|zee5|jiocinema|bookmyshow|pvr|inox|openai|chatgpt|claude|anthropic|github|notion|canva|microsoft|adobe|steam|playstation|xbox|dream11/i],
+  ['Health', /pharma|medical|medicals|apollo|medplus|1mg|pharmeasy|netmeds|hospital|clinic|doctor|dental|diagnostic|\blabs?\b|cult\.?fit|\bgym\b|fitness/i],
+  ['Local shops', /\bstor(e|es)?\b|\bstor\b|mart\b|traders|enterprises|agencies|general|provision|kirana|supermarket|vendolite|vending|paytmqr|bharatpe|\bq\d{6,}@|vyapar|gpay-\d|okbizaxis|\.bharatpe|pinelabs|\bshop\b|bakery ?&|textiles|stationery|xerox|dmart|ratnadeep|more ?retail|spar\b|reliance ?smart/i],
 ];
 
+// A person's UPI id (name@okaxis, 98xxxxxx@upi) or a name like "Mr Johaan Sa" / "SIDHARTH D N"
+const PERSON_RE = /^(mr|mrs|ms|dr|shri|smt)\.?\s|^[a-z][a-z.]*(\s[a-z]{1,15}){1,3}$|^[\w.\-]+@(ok(axis|icici|hdfcbank|sbi)|upi|ybl|ibl|axl|paytm|apl|yapl|waicici|kotak)$|^\d{10}@/i;
+
 function categorize_(merchant, message, custom) {
-  const hay = (merchant || '') + ' ' + (message || '');
-  for (const [kw, cat] of custom) if (kw && hay.toLowerCase().includes(kw)) return cat;
-  for (const [cat, re] of CATEGORY_RULES) if (re.test(merchant || '')) return cat;
-  if (!merchant) for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat;
-  if (/@/.test(merchant || '') || /^[a-z .]+$/i.test(merchant || '')) return 'People (UPI)';
+  const m = String(merchant || '').trim();
+  const low = m.toLowerCase();
+  for (const [kw, cat] of custom) if (kw && low.includes(kw)) return cat;          // your corrections first
+  for (const [cat, re] of CATEGORY_RULES) if (re.test(m)) return cat;
+  if (!m) { for (const [cat, re] of CATEGORY_RULES) if (re.test(message || '')) return cat; return /\batm\b|cash withdrawal/i.test(message || '') ? 'Other' : 'Other'; }
+  if (/\b(pvt|ltd|limited|tech(nologies)?|services|solutions|retail|payments?|llp|corp|india)\b/i.test(m)) return 'Other';
+  if (PERSON_RE.test(m)) return 'People';
   return 'Other';
 }
 
@@ -264,6 +272,7 @@ function doPost(e) {
   if (body.action === 'summary') return json_(getSummary(body.pin));
   if (body.action === 'createPin') return json_(createPin(body.newPin));
   if (body.action === 'saveSettings') return json_(saveSettings(body.pin, body.settings || {}));
+  if (body.action === 'setCategory') return json_(setCategory(body.pin, body.merchant, body.category));
   if (body.action === 'add') return json_({ ok: true, result: addManual(body.pin, body.text || '') });
 
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
@@ -432,7 +441,7 @@ function buildSummary_() {
     // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
     history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
       r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? categorize_(r[5], r[9], custom) : 'Money in']),
-    allCategories: CATEGORY_RULES.map(r => r[0]).concat(['People (UPI)', 'Other']),
+    allCategories: CATEGORIES,
   };
 }
 
@@ -510,6 +519,18 @@ function dailyCheck() {
   MailApp.sendEmail(Session.getEffectiveUser().getEmail(), `💸 Money alert: ${serious[0].text.slice(0, 60)}`, body);
 }
 
+/** You corrected a payment in the app: remember it for this place from now on. */
+function setCategory(pin, merchant, category) {
+  if (!pinOk_(pin)) return { ok: false, error: 'Wrong PIN' };
+  const kw = String(merchant || '').toLowerCase().trim().slice(0, 60);
+  if (!kw || CATEGORIES.indexOf(category) < 0) return { ok: false, error: 'Bad category' };
+  const sh = sheet_('Categories', ['If the shop/person contains…', 'Put it in category']);
+  const rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues() : [];
+  const i = rows.findIndex(r => String(r[0]).toLowerCase().trim() === kw);
+  if (i >= 0) sh.getRange(i + 2, 2).setValue(category); else sh.appendRow([kw, category]);
+  return { ok: true };
+}
+
 /** Lets you paste an old SMS in the app to add it by hand. */
 function addManual(pin, text) {
   if (!pinOk_(pin)) return 'bad pin';
@@ -521,7 +542,6 @@ function setup() {
   sheet_(SHEET_TX, TX_HEADERS);
   sheet_(SHEET_UNPARSED, ['When', 'Source', 'Message']);
   const cats = sheet_('Categories', ['If the shop/person contains…', 'Put it in category']);
-  if (cats.getLastRow() < 2) cats.appendRow(['ramesh', 'Rent']);   // example: edit or delete
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('SECRET')) props.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));

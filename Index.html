@@ -38,6 +38,33 @@
   .chart svg { display:block; overflow:visible; }
   .chart .tip { font-size:14px; min-height:40px; margin-top:6px; }
   .month { cursor:pointer; }
+  :root { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#4a3aa7; --c8:#e34948; --c9:#aeaeb2; }
+  @media (prefers-color-scheme: dark) { :root { --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#e66767; --c9:#636366; } }
+  .seg { display:flex; background:var(--track); border-radius:10px; padding:2px; margin:0 0 10px; }
+  .seg button { flex:1; margin:0; padding:7px 0; background:none; color:var(--text); font-size:14px; font-weight:500; border-radius:8px; }
+  .seg button.on { background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.15); font-weight:600; }
+  .pnav { display:flex; align-items:center; justify-content:space-between; margin:0 0 10px; font-weight:600; }
+  .pnav button { width:40px; margin:0; padding:4px 0; background:none; color:var(--bar); font-size:26px; line-height:1; }
+  .pnav button:disabled { color:var(--line); }
+  .delta { font-size:14px; font-weight:600; margin-top:2px; } .delta span { color:var(--muted); font-weight:400; }
+  .delta.up { color:var(--crit); } .delta.down { color:var(--good); }
+  .catrow { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .catrow:last-child { border-bottom:0; }
+  .grow { flex:1; min-width:0; } .chev { color:var(--muted); width:12px; text-align:center; }
+  .sw.lg { width:12px; height:12px; border-radius:4px; }
+  .catlist { padding:0 0 6px 24px; border-bottom:1px solid var(--line); }
+  .insight { display:flex; gap:12px; padding:9px 0; line-height:1.4; font-size:15px; border-bottom:1px solid var(--line); }
+  .insight:last-child { border-bottom:0; } .insight .bar { width:4px; border-radius:2px; flex:none; }
+  .place { padding:8px 0; } .place .top { display:flex; justify-content:space-between; gap:10px; }
+  .pbar { height:6px; background:var(--track); border-radius:3px; margin:6px 0 3px; overflow:hidden; } .pbar div { height:100%; border-radius:3px; }
+  .bardetail { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); } .bardetail .top { display:flex; justify-content:space-between; margin-bottom:6px; }
+  .mini { display:flex; gap:10px; align-items:center; padding:4px 0; font-size:15px; }
+  .ell { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sheet { position:fixed; inset:0; z-index:20; } .sheet-bg { position:absolute; inset:0; background:rgba(0,0,0,.4); }
+  .sheet-card { position:absolute; left:8px; right:8px; bottom:calc(env(safe-area-inset-bottom) + 8px); background:var(--card); border-radius:16px; padding:14px; max-width:540px; margin:0 auto; animation:up .2s ease-out; }
+  @keyframes up { from { transform:translateY(40px); opacity:0; } }
+  .catpick { display:flex; gap:12px; align-items:center; background:none; color:var(--text); margin:0; padding:11px 8px; border-radius:10px; font-weight:500; text-align:left; }
+  .catpick.on { background:var(--track); }
   * { box-sizing:border-box; }
   html { background:var(--bg); }
   body { margin:0 auto; background:var(--bg); color:var(--text); font:16px -apple-system, system-ui, sans-serif; max-width:560px;
@@ -217,7 +244,7 @@ function render() {
   const app = document.getElementById('app'), nav = document.getElementById('nav');
   app.hidden = false; nav.hidden = false;
   nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
-  const title = { home: 'Money', spend: 'This month', money: 'History', settings: 'Settings' }[TAB];
+  const title = { home: 'Money', spend: 'Spending', money: 'History', settings: 'Settings' }[TAB];
   app.innerHTML = `
     <header><div class="title">${title}</div><button id="sync" class="sync" onclick="sync()"><span class="dot"></span><span></span></button></header>
     <div class="view">${TAB === 'home' ? homeView(d) : TAB === 'spend' ? spendView(d) : TAB === 'settings' ? settingsView(d) : moneyView(d)}</div>`;
@@ -243,97 +270,189 @@ function homeView(d) {
       <div class="card"><div class="sub">Safe / day</div><div class="big">${inr(d.safeToSpendPerDay)}</div></div>
     </div>
     <h1>Latest</h1>
-    <div class="card">${d.recent.slice(0, 8).map(txRow).join('') || '<p class="note">Waiting for your first bank SMS…</p>'}</div>`;
+    <div class="card">${(d.history || []).slice(-8).reverse().map(histRow).join('') || '<p class="note">Waiting for your first bank SMS…</p>'}</div>`;
 }
 
-// ───────── Spending tab ─────────
+// ───────── Spending tab (Apple-style) ─────────
+// Stack order = the palette's validated slot order, so neighbouring colours always stay distinguishable.
+const CATS = [
+  ['Transport', 'var(--c1)'], ['Food & drinks', 'var(--c2)'], ['Online delivery', 'var(--c3)'], ['Local shops', 'var(--c4)'],
+  ['Shopping', 'var(--c5)'], ['People', 'var(--c6)'], ['Bills & subscriptions', 'var(--c7)'], ['Health', 'var(--c8)'], ['Other', 'var(--c9)'],
+];
+const CAT_COLOR = Object.fromEntries(CATS);
+const catOf = c => CAT_COLOR[c] ? c : 'Other';
+let SP_ACCT = 'all', SP_PERIOD = 'month', SP_OFFSET = 0, SP_BAR = null, SP_CAT = null;
+function setSP(k, v) {
+  if (k === 'a') SP_ACCT = v; if (k === 'p') { SP_PERIOD = v; SP_OFFSET = 0; } if (k === 'o') SP_OFFSET = Math.min(0, SP_OFFSET + v);
+  if (k === 'bar') SP_BAR = SP_BAR === v ? null : v; else if (k !== 'cat') SP_BAR = null;
+  if (k === 'cat') SP_CAT = SP_CAT === v ? null : v; else if (k !== 'bar') SP_CAT = null;
+  render();
+}
+
+// The period on screen, its buckets (bars) and the previous period to compare with
+function spPeriod(off) {
+  const now = new Date();
+  if (SP_PERIOD === 'week') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + 7 * off);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+    return { start, end, label: start.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ' – ' + new Date(end - DAY).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+      buckets: [...Array(7)].map((_, i) => { const d0 = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i); return { s: +d0, e: +d0 + DAY, label: d0.toLocaleDateString('en-IN', { weekday: 'narrow' }), long: d0.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' }) }; }), unit: 'day' };
+  }
+  if (SP_PERIOD === 'year') {
+    const y = now.getFullYear() + off, start = new Date(y, 0, 1), end = new Date(y + 1, 0, 1);
+    return { start, end, label: String(y), unit: 'month',
+      buckets: [...Array(12)].map((_, i) => ({ s: +new Date(y, i, 1), e: +new Date(y, i + 1, 1), label: new Date(y, i, 1).toLocaleDateString('en-IN', { month: 'narrow' }), long: new Date(y, i, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) })) };
+  }
+  const start = new Date(now.getFullYear(), now.getMonth() + off, 1), end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  const n = Math.round((end - start) / DAY);
+  return { start, end, label: start.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }), unit: 'day',
+    buckets: [...Array(n)].map((_, i) => { const d0 = new Date(start.getFullYear(), start.getMonth(), i + 1); return { s: +d0, e: +d0 + DAY, label: (i + 1) % 7 === 1 ? String(i + 1) : '', long: d0.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) }; }) };
+}
+const spTx = (d, P) => (d.history || []).filter(t => !t[2] && t[0] >= +P.start && t[0] < +P.end && (SP_ACCT === 'all' || t[1] === SP_ACCT));
+const byCat = tx => { const o = {}; tx.forEach(t => { const c = catOf(t[6]); o[c] = (o[c] || 0) + t[3]; }); return o; };
+const pctTxt = (a, b) => b > 0 ? Math.round((a / b - 1) * 100) : null;
+
 function spendView(d) {
-  const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0;
-  const pacePct = d.today / d.daysInMonth * 100;          // where you "should" be today
-  const over = d.spent > d.budget;
-  const diffLast = d.spent - d.lastMonthSoFar;
-  const catMax = Math.max(1, ...d.categories.map(c => Math.max(c.value, c.last, c.limit || 0)));
-
+  const P = spPeriod(SP_OFFSET), Q = spPeriod(SP_OFFSET - 1);
+  const tx = spTx(d, P), prev = spTx(d, Q);
+  const total = tx.reduce((s, t) => s + t[3], 0), prevTotal = prev.reduce((s, t) => s + t[3], 0);
+  // compare like with like: for the current period, only the same number of days of the previous one
+  const elapsed = Math.min(Date.now(), +P.end) - +P.start;
+  const prevSoFar = SP_OFFSET === 0 ? prev.filter(t => t[0] - +Q.start <= elapsed).reduce((s, t) => s + t[3], 0) : prevTotal;
+  const ch = pctTxt(total, prevSoFar);
+  const cats = byCat(tx), catsPrev = byCat(SP_OFFSET === 0 ? prev.filter(t => t[0] - +Q.start <= elapsed) : prev);
+  const list = CATS.map(c => c[0]).filter(c => cats[c]).sort((a, b) => cats[b] - cats[a]);
+  const B = banks(d);
+  const chip = (fn, k, v, label, on, color) => `<button class="${on ? 'on' : ''}" onclick="${fn}('${k}', ${typeof v === 'string' ? `'${v.replace(/'/g, "\\'")}'` : v})">${color ? `<span class="sw" style="background:${color}"></span>` : ''}${label}</button>`;
+  const monthNow = SP_PERIOD === 'month' && SP_OFFSET === 0;
   return `
-    ${d.alerts.map(a => `<div class="alert ${a.level}"><b>${ICON[a.level]}</b><span>${esc(a.text)}</span></div>`).join('')}
-
+    ${B.length > 1 ? `<div class="chips">${chip('setSP', 'a', 'all', 'All banks', SP_ACCT === 'all')}${B.map(b => chip('setSP', 'a', b.name, esc(short(b.name)), SP_ACCT === b.name, b.color)).join('')}</div>` : ''}
+    <div class="seg">${['week', 'month', 'year'].map(p => `<button class="${SP_PERIOD === p ? 'on' : ''}" onclick="setSP('p','${p}')">${p[0].toUpperCase() + p.slice(1)}</button>`).join('')}</div>
+    <div class="pnav"><button onclick="setSP('o',-1)" aria-label="Previous">‹</button><span>${P.label}</span><button onclick="setSP('o',1)" ${SP_OFFSET === 0 ? 'disabled' : ''} aria-label="Next">›</button></div>
     <div class="card">
-      <div class="sub">Spent this month</div>
-      <div class="hero">${inr(d.spent)} <span class="sub" style="font-size:16px;font-weight:400">of ${inr(d.budget)}</span></div>
-      <div class="meter ${over ? 'over' : ''}" role="img" aria-label="${Math.round(pct)}% of budget used, ${Math.round(pacePct)}% of month gone">
-        <div class="fill" style="width:${pct}%"></div>
-        <div class="pace" style="left:calc(${pacePct}% - 1px)"></div>
-      </div>
-      <div class="sub">The thin line = where you'd be if you spent evenly (day ${d.today} of ${d.daysInMonth})</div>
+      <div class="sub">Spent</div>
+      <div class="hero">${inr(total)}</div>
+      ${ch !== null ? `<div class="delta ${ch > 0 ? 'up' : 'down'}">${ch > 0 ? '▲' : '▼'} ${Math.abs(ch)}% <span>vs ${SP_OFFSET === 0 ? 'same point ' : ''}last ${SP_PERIOD}</span></div>` : '<div class="sub">No earlier data to compare</div>'}
+      <div class="chart" style="margin-top:14px"><div id="spChart"></div></div>
+      <div id="spTip">${barDetail(d, P, tx)}</div>
     </div>
-
-    <div class="two">
-      <div class="card"><div class="sub">Safe to spend / day</div><div class="big">${inr(d.safeToSpendPerDay)}</div></div>
-      <div class="card"><div class="sub">Month-end at this pace</div><div class="big" style="color:${d.projected > d.budget ? 'var(--crit)' : 'var(--text)'}">${inr(d.projected)}</div></div>
-      <div class="card"><div class="sub">Today</div><div class="big">${inr(d.spentToday)}</div><div class="sub">usual ${inr(d.usualPerDay)}/day</div></div>
-      <div class="card"><div class="sub">vs last month (same date)</div><div class="big" style="color:${diffLast > 0 ? 'var(--crit)' : 'var(--good)'}">${diffLast > 0 ? '+' : '−'}${inr(Math.abs(diffLast))}</div><div class="sub">${d.lastMonthSoFar ? 'was ' + inr(d.lastMonthSoFar) : 'no data yet'}</div></div>
-    </div>
-
-    <h1>Spending per day</h1>
+    ${monthNow && d.budget ? budgetCard(d) : ''}
+    ${insights(tx, prev, cats, catsPrev, total, P)}
+    <h1>Categories</h1>
     <div class="card">
-      <div id="chart"></div>
-      <div id="tip" class="sub">Tap a bar to see that day</div>
+      ${total ? `<div class="stack" style="height:12px;margin:4px 0 12px">${list.map(c => `<div style="flex:${cats[c]};background:${CAT_COLOR[c]}"></div>`).join('')}</div>` : ''}
+      ${list.map(c => { const cp = pctTxt(cats[c], catsPrev[c] || 0), n = tx.filter(t => catOf(t[6]) === c).length;
+        return `<div class="catrow" onclick="setSP('cat','${c}')">
+          <span class="sw lg" style="background:${CAT_COLOR[c]}"></span>
+          <div class="grow"><div>${esc(c)}</div><div class="sub">${n} payment${n === 1 ? '' : 's'} · ${cats[c] / total < .01 ? '<1' : Math.round(cats[c] / total * 100)}%${cp !== null && Math.abs(cp) >= 5 ? ` · <span class="${cp > 0 ? 'debit' : 'credit'}">${cp > 0 ? '▲' : '▼'}${Math.abs(cp)}%</span>` : ''}</div></div>
+          <div class="amt">${inr(cats[c])}</div><span class="chev">${SP_CAT === c ? '⌃' : '›'}</span></div>
+          ${SP_CAT === c ? `<div class="catlist">${tx.filter(t => catOf(t[6]) === c).slice().reverse().map(histRow).join('')}</div>` : ''}`; }).join('') || '<p class="note">No spending in this period.</p>'}
     </div>
+    ${topPlaces(tx)}`;
+}
 
-    <h1>Where it went</h1>
-    <div class="card">
-      ${d.categories.map(c => `
-        <div class="cat">
-          <div class="top"><span>${esc(c.name)}</span><span class="amt">${inr(c.value)}${c.limit ? ` <span class="sub">/ ${inr(c.limit)}</span>` : ''}</span></div>
-          <div class="meter ${c.limit && c.value > c.limit ? 'over' : ''}">
-            <div class="fill" style="width:${c.value / catMax * 100}%"></div>
-            ${c.last ? `<div class="last" style="left:calc(${c.last / catMax * 100}% - 1px)" title="Last month by now: ${inr(c.last)}"></div>` : ''}
-          </div>
-          <div class="sub">${c.last ? `last month by now ${inr(c.last)} (grey line)` : ''}</div>
-        </div>`).join('') || '<p class="note">No spending yet this month.</p>'}
-    </div>
+function budgetCard(d) {
+  const pct = Math.min(100, d.spent / d.budget * 100), pace = d.today / d.daysInMonth * 100;
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between"><span class="sub">Monthly budget</span><span class="sub">${inr(Math.max(0, d.budget - d.spent))} left · ${inr(d.safeToSpendPerDay)}/day</span></div>
+    <div class="meter ${d.spent > d.budget ? 'over' : ''}"><div class="fill" style="width:${pct}%"></div><div class="pace" style="left:calc(${pace}% - 1px)"></div></div>
+    <div class="sub">${inr(d.spent)} of ${inr(d.budget)} · line = even pace for today</div>
+    ${d.alerts.filter(a => a.level !== 'good').map(a => `<div class="alert ${a.level}" style="margin:10px 0 0"><b>${ICON[a.level]}</b><span>${esc(a.text)}</span></div>`).join('')}
+  </div>`;
+}
 
-    <h1>Top places</h1>
-    <div class="card">${d.merchants.map(m => `<div class="row"><div>${esc(m.name)}</div><div class="amt">${inr(m.value)}</div></div>`).join('') || '<p class="note">Nothing yet.</p>'}</div>
+// Plain-language insights, only the ones that are actually true for this period
+function insights(tx, prev, cats, catsPrev, total, P) {
+  if (!tx.length) return '';
+  const out = [];
+  const top = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+  if (top) out.push([CAT_COLOR[top[0]], `<b>${esc(top[0])}</b> is your biggest spend: ${inr(top[1])}, ${Math.round(top[1] / total * 100)}% of the total.`]);
+  const ups = Object.entries(cats).map(([c, v]) => [c, v, catsPrev[c] || 0]).filter(([, v, w]) => w > 0 && v - w >= 200 && v > w * 1.3).sort((a, b) => (b[1] - b[2]) - (a[1] - a[2]));
+  if (ups[0]) out.push([CAT_COLOR[ups[0][0]], `<b>${esc(ups[0][0])}</b> is up ${Math.round((ups[0][1] / ups[0][2] - 1) * 100)}% (${inr(ups[0][1] - ups[0][2])} more than last ${SP_PERIOD}).`]);
+  const freq = {}; tx.forEach(t => { if (t[4]) freq[t[4]] = (freq[t[4]] || []).concat(t[3]); });
+  const f = Object.entries(freq).sort((a, b) => b[1].length - a[1].length)[0];
+  if (f && f[1].length >= 3) out.push(['var(--muted)', `You paid <b>${esc(f[0])}</b> ${f[1].length} times, ${inr(f[1].reduce((a, b) => a + b, 0))} in total.`]);
+  const del = cats['Online delivery'] || 0;
+  if (del && del / total >= 0.15) out.push([CAT_COLOR['Online delivery'], `Delivery apps took <b>${Math.round(del / total * 100)}%</b> of your spending.`]);
+  const big = tx.slice().sort((a, b) => b[3] - a[3])[0];
+  if (big && big[3] >= total * 0.25 && tx.length > 3) out.push(['var(--muted)', `Your biggest single payment was <b>${inr(big[3])}</b> to ${esc(big[4] || catOf(big[6]))}.`]);
+  if (SP_PERIOD !== 'year') {
+    const we = tx.filter(t => [0, 6].includes(new Date(t[0]).getDay())), wd = tx.filter(t => ![0, 6].includes(new Date(t[0]).getDay()));
+    const weAvg = we.reduce((s, t) => s + t[3], 0) / 2, wdAvg = wd.reduce((s, t) => s + t[3], 0) / 5;
+    if (SP_PERIOD === 'week' && weAvg > wdAvg * 1.8 && weAvg > 300) out.push(['var(--muted)', `You spend about ${(weAvg / Math.max(1, wdAvg)).toFixed(1)}× more per day on weekends.`]);
+  }
+  return out.length ? `<h1>Insights</h1><div class="card">${out.slice(0, 4).map(([c, t]) => `<div class="insight"><span class="bar" style="background:${c}"></span><span>${t}</span></div>`).join('')}</div>` : '';
+}
 
-    <h1>Recent</h1>
-    <div class="card">${d.recent.slice(0, 15).map(txRow).join('') || '<p class="note">Nothing yet.</p>'}</div>`;
+function topPlaces(tx) {
+  const o = {}; tx.forEach(t => { const k = t[4] || catOf(t[6]); o[k] = o[k] || [0, 0, catOf(t[6])]; o[k][0] += t[3]; o[k][1]++; });
+  const top = Object.entries(o).sort((a, b) => b[1][0] - a[1][0]).slice(0, 6);
+  if (!top.length) return '';
+  const max = top[0][1][0];
+  return `<h1>Top places</h1><div class="card">${top.map(([n, [v, c, cat]]) => `<div class="place"><div class="top"><span>${esc(n)}</span><span class="amt">${inr(v)}</span></div>
+    <div class="pbar"><div style="width:${v / max * 100}%;background:${CAT_COLOR[cat]}"></div></div><div class="sub">${esc(cat)} · ${c}×</div></div>`).join('')}</div>`;
+}
+
+function barDetail(d, P, tx) {
+  if (SP_BAR === null) {
+    const n = P.buckets.filter(b => b.s <= Date.now()).length || 1, total = tx.reduce((s, t) => s + t[3], 0);
+    return `<div class="sub" style="margin-top:6px">Average ${inr(total / n)} per ${P.unit} · tap a bar for details</div>`;
+  }
+  const b = P.buckets[SP_BAR], bt = tx.filter(t => t[0] >= b.s && t[0] < b.e), c = byCat(bt);
+  return `<div class="bardetail"><div class="top"><b>${b.long}</b><b>${inr(bt.reduce((s, t) => s + t[3], 0))}</b></div>
+    ${Object.entries(c).sort((x, y) => y[1] - x[1]).map(([k, v]) => `<div class="mini"><span class="sw" style="background:${CAT_COLOR[k]}"></span><span class="grow">${esc(k)}</span><span class="amt">${inr(v)}</span></div>`).join('') || '<div class="sub">Nothing spent</div>'}
+    ${P.unit === 'day' ? bt.slice().reverse().map(histRow).join('') : ''}</div>`;
 }
 
 function wireChart(d) {
-  const el = document.getElementById('chart');
-  const W = el.clientWidth || 320, H = 150, padL = 4, padB = 18, padT = 10;
-  const n = d.daysInMonth, gap = 2;
-  const bw = (W - padL) / n - gap;
-  const perDay = d.budget / n;
-  const max = Math.max(perDay * 1.5, ...d.daily, 1);
-  const y = v => H - padB - (v / max) * (H - padB - padT);
-  let bars = '', hits = '';
-  d.daily.forEach((v, i) => {
-    const x = padL + i * (bw + gap);
-    const future = i + 1 > d.today;
-    if (v > 0) {
-      const top = y(v), h = H - padB - top, r = Math.min(4, bw / 2, h);
-      // rounded top only, square at the baseline
-      bars += `<path d="M${x},${H - padB} V${top + r} q0,-${r} ${r},-${r} H${x + bw - r} q${r},0 ${r},${r} V${H - padB} Z" fill="${v > perDay * 2 ? 'var(--crit)' : 'var(--bar)'}"/>`;
-    }
-    hits += `<rect x="${x - gap / 2}" y="0" width="${bw + gap}" height="${H}" fill="transparent" data-i="${i}" style="cursor:pointer"/>`;
-    if (!future && (i === 0 || (i + 1) % 5 === 0)) bars += `<text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle">${i + 1}</text>`;
+  const P = spPeriod(SP_OFFSET), tx = spTx(d, P), el = document.getElementById('spChart'); if (!el) return;
+  const W = el.clientWidth || 320, H = 180, pb = 18, pt = 16, n = P.buckets.length, gap = n > 12 ? 2 : 6;
+  const bw = (W - 34 - gap * (n - 1)) / n;
+  const data = P.buckets.map(b => { const bt = tx.filter(t => t[0] >= b.s && t[0] < b.e); const c = byCat(bt); return { c, total: bt.reduce((s, t) => s + t[3], 0) }; });
+  const niceMax = v => { const p = Math.pow(10, Math.floor(Math.log10(v || 1))); return Math.ceil(v / p / (v / p > 5 ? 2 : 1)) * p * (v / p > 5 ? 2 : 1); };
+  const max = niceMax(Math.max(1, ...data.map(x => x.total)));
+  const y = v => H - pb - v / max * (H - pb - pt);
+  const past = P.buckets.filter(b => b.s <= Date.now()).length || 1, avg = data.reduce((s, x) => s + x.total, 0) / past;
+  let g = [0, .5, 1].map(f => `<line x1="0" x2="${W - 34}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--grid)"/><text x="${W}" y="${y(max * f) + 3}" text-anchor="end">${inrK(max * f)}</text>`).join('');
+  data.forEach((x, i) => {
+    const bx = i * (bw + gap), dim = SP_BAR !== null && SP_BAR !== i ? .35 : 1, future = P.buckets[i].s > Date.now();
+    let yy = H - pb; const order = CATS.map(c => c[0]).filter(c => x.c[c]);
+    order.forEach((c, j) => {
+      const h = x.c[c] / max * (H - pb - pt), top = j === order.length - 1, r = top ? Math.min(4, bw / 2, h) : 0, y0 = yy - h + (j ? 0 : 0);
+      const hh = Math.max(0, h - (top ? 0 : 2));   // 2px surface gap between segments
+      g += top ? `<path d="M${bx},${yy}V${yy - hh + r}q0,-${r} ${r},-${r}H${bx + bw - r}q${r},0 ${r},${r}V${yy}Z" fill="${CAT_COLOR[c]}" opacity="${dim}"/>`
+               : `<rect x="${bx}" y="${yy - hh}" width="${bw}" height="${hh}" fill="${CAT_COLOR[c]}" opacity="${dim}"/>`;
+      yy -= h;
+    });
+    if (!x.total && !future) g += `<rect x="${bx}" y="${H - pb - 2}" width="${bw}" height="2" rx="1" fill="var(--grid)"/>`;
+    if (P.buckets[i].label) g += `<text x="${bx + bw / 2}" y="${H - 3}" text-anchor="middle" ${SP_BAR === i ? 'style="fill:var(--text);font-weight:600"' : ''}>${P.buckets[i].label}</text>`;
+    g += `<rect x="${bx - gap / 2}" y="0" width="${bw + gap}" height="${H}" fill="transparent" style="cursor:pointer" onclick="setSP('bar', ${i})"/>`;
   });
-  const ly = y(perDay);
-  el.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="Daily spending this month">
-    <line x1="0" x2="${W}" y1="${H - padB}" y2="${H - padB}" stroke="var(--line)"/>
-    <line x1="0" x2="${W}" y1="${ly}" y2="${ly}" stroke="var(--ref)" stroke-dasharray="4 4"/>
-    <text x="4" y="${ly - 4}" text-anchor="start">budget/day ${inr(perDay)}</text>
-    ${bars}${hits}</svg>`;
-  const tip = document.getElementById('tip');
-  el.querySelectorAll('rect[data-i]').forEach(r => {
-    const show = () => {
-      const i = Number(r.dataset.i), v = d.daily[i];
-      tip.innerHTML = `<b>Day ${i + 1}</b>: ${v ? inr(v) + (v > perDay * 2 ? ' · way above your ' + inr(perDay) + '/day' : '') : 'nothing spent'}`;
-    };
-    r.addEventListener('mouseenter', show); r.addEventListener('click', show);
+  if (avg > 0) g += `<line x1="0" x2="${W - 34}" y1="${y(avg)}" y2="${y(avg)}" stroke="var(--text)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><text x="2" y="${y(avg) - 4}" style="fill:var(--text)">avg ${inrK(avg)}</text>`;
+  el.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="Spending per ${P.unit} by category">${g}</svg>`;
+}
+
+// One transaction row in History/Spending. Tap it to change its category.
+function histRow(t) {
+  const m = t[4] || '';
+  return `<div class="row" onclick="event.stopPropagation(); pickCat(${JSON.stringify(m).replace(/"/g, '&quot;')}, '${catOf(t[6])}')">
+    <div style="display:flex;gap:10px;align-items:center;min-width:0"><span class="sw" style="background:${t[2] ? 'var(--in)' : CAT_COLOR[catOf(t[6])]}"></span>
+    <div style="min-width:0"><div class="ell">${esc(m || (t[2] ? 'Received' : 'Payment'))}</div><div class="sub">${t[2] ? 'Money in' : esc(catOf(t[6]))} · ${esc(short(t[1]))} · ${new Date(t[0]).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</div></div></div>
+    <div class="amt ${t[2] ? 'credit' : 'debit'}">${t[2] ? '+' : '−'}${inr(t[3])}</div></div>`;
+}
+
+function pickCat(merchant, current) {
+  if (!merchant) { toast('This payment has no name to learn from'); return; }
+  const sheet = document.createElement('div'); sheet.className = 'sheet';
+  sheet.innerHTML = `<div class="sheet-bg" onclick="this.parentNode.remove()"></div><div class="sheet-card">
+    <div class="sub" style="text-align:center">Always put</div><div style="text-align:center;font-weight:600;margin:2px 0 10px">${esc(merchant)}</div>
+    ${CATS.map(([c, col]) => `<button class="catpick ${c === current ? 'on' : ''}" data-c="${esc(c)}"><span class="sw lg" style="background:${col}"></span>${esc(c)}${c === current ? ' ✓' : ''}</button>`).join('')}
+    <button class="catpick" onclick="this.closest('.sheet').remove()" style="justify-content:center;color:var(--muted)">Cancel</button></div>`;
+  sheet.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+    sheet.remove(); toast('Saving…');
+    api('setCategory', { merchant, category: b.dataset.c }).then(r => { toast(r.ok ? 'Got it ✓ Future payments too' : (r.error || 'Couldn’t save')); if (r.ok) sync(); }).catch(() => toast('No connection'));
   });
+  document.body.appendChild(sheet);
 }
 
 // ───────── Accounts tab ─────────
@@ -414,7 +533,7 @@ function monthDetail(d, tx) {
   const out = m.filter(t => !t[2]), inn = m.filter(t => t[2]);
   const sum = a => a.reduce((s, t) => s + t[3], 0);
   const group = (a, i) => Object.entries(a.reduce((o, t) => (o[t[i] || 'Other'] = (o[t[i] || 'Other'] || 0) + t[3], o), {})).sort((x, y) => y[1] - x[1]);
-  const cats = group(out, 6), places = group(out, 4).slice(0, 5);
+  const cats = group(out.map(t => { const x = t.slice(); x[6] = catOf(t[6]); return x; }), 6), places = group(out, 4).slice(0, 5);
   const max = Math.max(1, ...cats.map(c => c[1]));
   return `
     <h1>${monthName(k, true)}</h1>
@@ -424,10 +543,10 @@ function monthDetail(d, tx) {
       <div class="row"><span>Net</span><span class="amt">${sum(inn) - sum(out) >= 0 ? '+' : '−'}${inr(Math.abs(sum(inn) - sum(out)))}</span></div>
     </div>
     ${cats.length ? `<div class="card">${cats.map(([c, v]) => `<div class="cat"><div class="top"><span>${esc(c)}</span><span class="amt">${inr(v)}</span></div>
-      <div class="meter"><div class="fill" style="width:${v / max * 100}%"></div></div></div>`).join('')}</div>` : ''}
+      <div class="pbar"><div style="width:${v / max * 100}%;background:${CAT_COLOR[catOf(c)]}"></div></div></div>`).join('')}</div>` : ''}
     ${places.length ? `<h1>Top places</h1><div class="card">${places.map(([n, v]) => `<div class="row"><div>${esc(n)}</div><div class="amt">${inr(v)}</div></div>`).join('')}</div>` : ''}
     <h1>All ${m.length} transaction${m.length === 1 ? '' : 's'}</h1>
-    <div class="card">${m.slice().reverse().map(t => txRow({ when: new Date(t[0]).toISOString(), account: short(t[1]), type: t[2] ? 'credit' : 'debit', amount: t[3], merchant: t[4], category: t[6] })).join('')}</div>`;
+    <div class="card">${m.slice().reverse().map(histRow).join('')}</div>`;
 }
 
 function wireHistory(d) {
