@@ -111,10 +111,12 @@ const ICON = { critical:'⛔ Over', warning:'⚠️ Watch', good:'✅ OK', info:
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
+// Your server. Built in so you never have to paste it.
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbx_89qVHduJzbO_V24J36aoPk6fkId-RgIDZ4agAk3h33-DLOeyvNLFz7gaWoz5fZM_/exec';
+let PIN = store.get('pin') || '', URL_ = store.get('url') || DEFAULT_URL, TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
-if (IN_GOOGLE) document.getElementById('url').hidden = true; else document.getElementById('url').value = URL_;
+if (IN_GOOGLE || URL_) document.getElementById('url').hidden = true; else document.getElementById('url').value = URL_;
 
 function api(action, extra) {
   if (IN_GOOGLE) return new Promise((ok, bad) => {
