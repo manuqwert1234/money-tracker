@@ -146,7 +146,7 @@ function parseBankMessage(text) {
   // Balance / available limit first, then cut it out so it isn't mistaken for the amount.
   let rest = t, balance = null, limit = null;
   const limRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?)\\s*(?:credit\\s*)?(?:lmt|limit)\\s*(?:is|:|-)?\\s*' + CUR + '?\\s*:?\\s*' + NUM, 'i');
-  const balRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?|avbl\\.?|clr|clear|total|a\\/c)?\\s*bal(?:ance)?\\.?\\s*(?:is|:)?\\s*(?:[-–]\\s+)?((?:-|−)(?!\\s))?\\s*' + CUR + '?\\s*:?\\s*((?:-|−)(?!\\s))?\\s*' + NUM + '(\\s*dr\\b)?', 'i');
+  const balRe = new RegExp('(?:avl\\.?|avail(?:able)?\\.?|avbl\\.?|clr|clear|total|ledger|a\\/c)?\\s*bal(?:ance)?\\.?\\s*(?:\\((?:inr|rs\\.?|₹)\\))?\\s*(?:is|:)?\\s*(?:[-–]\\s+)?((?:-|−)(?!\\s))?\\s*' + CUR + '?\\s*:?\\s*((?:-|−)(?!\\s))?\\s*' + NUM + '(\\s*dr\\b)?', 'i');
   let m = rest.match(limRe);
   if (m) { limit = toNum_(m[1]); rest = rest.replace(m[0], ' '); }
   m = rest.match(balRe);
@@ -171,6 +171,10 @@ function parseBankMessage(text) {
   let bank = '';
   const noVpa = t.replace(/\S+@\S+/g, ' ');   // "okaxis" in a UPI id is not Axis Bank
   for (const [name, re] of BANKS) if (re.test(noVpa)) { bank = name; break; }
+  if (!bank) {   // any other bank: "ESAF Small Finance Bank", "Federal Bank", "XYZ Co-operative Bank"…
+    const g = noVpa.match(/\b([A-Z][A-Za-z&]{1,20}(?:\s[A-Z][A-Za-z&]{1,20})?)\s+(?:small finance\s+|co-?operative\s+|payments\s+)?bank\b/i);
+    if (g && !/^(your|the|dear|our|this|of|to|from|with|and|net|internet|mobile|any|by|at)$/i.test(g[1].split(' ')[0])) bank = g[1].split(' ')[0].toUpperCase() === g[1].split(' ')[0] ? g[1].split(' ')[0] : g[1].split(' ')[0][0].toUpperCase() + g[1].split(' ')[0].slice(1).toLowerCase();
+  }
 
   if (!last4) return bank ? null : { skip: 'not a bank alert' };
 
@@ -178,7 +182,8 @@ function parseBankMessage(text) {
   const kind = isCard ? 'card' : 'bank';
   const account = [bank || 'Bank', isCard ? 'Card' : 'A/c', last4 ? 'xx' + last4 : ''].join(' ').trim();
 
-  m = t.match(/(?:ref(?:erence)?\.?\s*(?:no|number)?|refno|utr|rrn|txn\s*id|upi ref|upi)[\s:.#\-]*([a-z0-9]{6,})/i);
+  m = t.match(/(?:\bref(?:erence)?\b\.?\s*(?:no\.?|number|id)?|\brefno|\butr|\brrn|\btxn\s*id|\bupi ref|\bupi)[\s:.#\-]*([a-z0-9]*\d[a-z0-9]*)\b/i);
+  if (m && m[1].length < 6) m = null;
   const ref = m ? m[1] : '';
 
   // Merchant / person (best effort)
@@ -286,6 +291,7 @@ function doPost(e) {
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET');
   if (!secret || body.token !== secret) return json_({ ok: false, error: 'bad token' });
   if (body.action === 'fixTriggers') { ensureTriggers_(); return json_({ ok: true, triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()) }); }
+  if (body.action === 'rebuild') { rebuildFromEmails(); return json_({ ok: true, rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
     try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
