@@ -295,13 +295,19 @@ function doPost(e) {
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
-    try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
+    try { const d = buildSummary_(); return json_({ ok: true, ms: Date.now() - t0, rows: d.history.length, accounts: d.accounts.map(a => a.name), sources: d.history.reduce((o, t) => o, 0), triggers: ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()), newest: d.history.length ? new Date(d.history[d.history.length - 1][0]).toISOString() : null, inbox: JSON.parse(PropertiesService.getScriptProperties().getProperty('INBOX_LOG') || '[]'), lastScan: PropertiesService.getScriptProperties().getProperty('LAST_SCAN'), unparsed: d.unparsed, smsRows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() > 1 ? sheet_(SHEET_TX, TX_HEADERS).getRange(2, 8, sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1, 1).getValues().filter(r => r[0] === 'sms').length : 0 }); }
     catch (err) { return json_({ ok: false, ms: Date.now() - t0, error: String(err && err.stack || err) }); }
   }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    return json_({ ok: true, result: ingest_(body.text || '', body.source || 'sms') });
+    const result = ingest_(body.text || '', body.source || 'sms');
+    // keep the last 10 arrivals (time, result, first 120 chars) so problems can be seen in the health check
+    const props = PropertiesService.getScriptProperties();
+    let log = []; try { log = JSON.parse(props.getProperty('INBOX_LOG') || '[]'); } catch (e) {}
+    log.push([new Date().toISOString(), result, String(body.text || '').slice(0, 120), typeof body.text]);
+    props.setProperty('INBOX_LOG', JSON.stringify(log.slice(-10)));
+    return json_({ ok: true, result });
   } finally {
     lock.releaseLock();
   }
@@ -325,6 +331,7 @@ function scanGmail(fromApp) {
   const seen = new Set(JSON.parse(props.getProperty('SEEN') || '[]'));
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(fromApp ? 1000 : 20000)) return 0;   // another check is already running
+  props.setProperty('LAST_SCAN', new Date().toISOString());
   let added = 0;
   try {
     // Banks put every alert in one giant thread, so ask Gmail for individual recent MESSAGES
@@ -472,6 +479,7 @@ function buildSummary_() {
     })),
     unparsed: unparsed ? Math.max(0, unparsed.getLastRow() - 1) : 0,
     settings: S,
+    status: status_(),
     // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
     history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
       r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? catFor(r[5]) : 'Money in']),
@@ -536,11 +544,16 @@ function getSummary(pin) {
   const cache = CacheService.getScriptCache();
   const key = 'summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd');
   const hit = cache.get(key);
-  if (hit) { try { return JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(hit), 'application/x-gzip')).getDataAsString()); } catch (e) {} }
+  if (hit) { try { return Object.assign(JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(hit), 'application/x-gzip')).getDataAsString()), { status: status_() }); } catch (e) {} }
   const d = buildSummary_();
   // compressed so years of history still fit in Google's 100 KB cache slot
   try { cache.put(key, Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(d), 'application/json')).getBytes()), 600); } catch (e) {}
   return d;
+}
+function status_() {   // always live, never cached
+  const pr = PropertiesService.getScriptProperties(); let log = []; try { log = JSON.parse(pr.getProperty('INBOX_LOG') || '[]'); } catch (e) {}
+  const last = log[log.length - 1];
+  return { lastSms: last ? last[0] : null, lastSmsResult: last ? last[1] : null, lastScan: pr.getProperty('LAST_SCAN') };
 }
 function clearCache_() { try { CacheService.getScriptCache().remove('summary-' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd')); } catch (e) {} }
 
