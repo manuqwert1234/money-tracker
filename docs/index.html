@@ -348,22 +348,28 @@ function banks(d) {
   const list = d.accounts.filter(a => a.kind === 'bank').map(a => a.name).sort();
   return list.map((name, i) => {
     const a = d.accounts.find(x => x.name === name);
-    return { name, color: `var(--s${(i % 5) + 1})`, balance: a.balance, updated: a.updated,
-             stale: a.updated && Date.now() - new Date(a.updated) > 45 * DAY };
+    const at = a.balanceAt || a.updated;   // when the balance itself was last reported
+    return { name, color: `var(--s${(i % 5) + 1})`, balance: a.balance, updated: at,
+             stale: !!at && Date.now() - new Date(at) > 45 * DAY };
   });
 }
 const short = n => n.replace(/ A\/c /, ' ');
 const inrK = v => { const a = Math.abs(v); return (v < 0 ? '−' : '') + '₹' + (a >= 1e5 ? (a / 1e5).toFixed(a >= 1e6 ? 0 : 1) + 'L' : a >= 1000 ? (a / 1000).toFixed(a >= 1e4 ? 0 : 1) + 'k' : Math.round(a)); };
 
 function bankCard(d) {
-  const B = banks(d).filter(b => b.balance !== null);
+  // Only balances from the last 45 days count. An old balance (e.g. a year-old HDFC message) would make the total wrong.
+  const all = banks(d).filter(b => b.balance !== null);
+  const B = all.filter(b => !b.stale), old = all.filter(b => b.stale);
   const total = B.reduce((s, b) => s + b.balance, 0);
-  if (!B.length) return `<div class="card"><div class="sub">Money in bank</div><div class="hero">—</div><div class="sub">Waiting for a message that shows your balance</div></div>`;
+  if (!all.length) return `<div class="card"><div class="sub">Money in bank</div><div class="hero">—</div><div class="sub">Waiting for a message that shows your balance</div></div>`;
   return `<div class="card" onclick="setTab('money')">
     <div class="sub">Money in bank</div><div class="hero">${inr(total)}</div>
     ${B.length > 1 ? `<div class="stack">${B.map(b => `<div style="flex:${Math.max(b.balance, total * 0.01)};background:${b.color}"></div>`).join('')}</div>` : ''}
     ${B.map(b => `<div class="row"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
-      <div class="sub">${b.stale ? 'last seen ' + new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'updated ' + ago(b.updated)}</div></div></div>
+      <div class="sub">updated ${ago(b.updated)}</div></div></div>
+      <div class="amt">${inr(b.balance)}</div></div>`).join('')}
+    ${old.map(b => `<div class="row" style="opacity:.5"><div style="display:flex;gap:10px;align-items:center"><span class="sw" style="background:${b.color}"></span><div>${esc(short(b.name))}
+      <div class="sub">last seen ${new Date(b.updated).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · not counted</div></div></div>
       <div class="amt">${inr(b.balance)}</div></div>`).join('')}
   </div>`;
 }

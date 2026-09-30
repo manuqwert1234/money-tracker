@@ -338,7 +338,7 @@ function buildSummary_() {
   for (const [when, account, kind, type, amount, merchant, balance, , , message] of rows) {
     const a = accounts[account] || (accounts[account] = { name: account, kind, balance: null, flow: 0, updated: null });
     a.flow = Math.round((a.flow + (type === 'credit' ? amount : -amount)) * 100) / 100;
-    if (balance !== '' && balance !== null) a.balance = Number(balance);
+    if (balance !== '' && balance !== null) { a.balance = Number(balance); a.balanceAt = new Date(when).toISOString(); }
     a.updated = new Date(when).toISOString();
 
     const m = fmt(when, 'yyyy-MM'), day = Number(fmt(when, 'd'));
