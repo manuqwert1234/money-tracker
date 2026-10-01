@@ -394,6 +394,7 @@ function doPost(e) {
     return json_({ ok: true });
   }
   if (body.action === 'brief') return ContentService.createTextOutput(brief_()).setMimeType(ContentService.MimeType.TEXT);
+  if (body.action === 'importNow') { try { importHistory(); const pr = PropertiesService.getScriptProperties(); return json_({ ok: true, at: pr.getProperty('IMPORT_AT'), added: pr.getProperty('IMPORT_ADDED'), done: pr.getProperty('IMPORT_DONE'), rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); } catch (e) { return json_({ ok: false, error: String(e && e.stack || e) }); } }
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
@@ -634,9 +635,22 @@ function importHistory() {
   lock.waitLock(30000);
   try {
     while (Date.now() - started < 4.5 * 60 * 1000) {
-      const res = Gmail.Users.Messages.list('me', { q: query, maxResults: 100, pageToken });
+      const res = Gmail.Users.Messages.list('me', { q: query, maxResults: 50, pageToken });
       const ids = res.messages || [];
-      if (ids.length) added += ingestMany_(ids.map(r => gmailMsg_(r.id))).filter(r => r === 'added').length;
+      // Gmail allows only so many reads per minute: read gently, and if we hit the limit, save our place and continue in a minute
+      const items = []; let limited = false;
+      for (const r of ids) {
+        try { items.push(gmailMsg_(r.id)); }
+        catch (e) { if (/quota|rate limit|too many/i.test(String(e))) { limited = true; break; } }
+        Utilities.sleep(60);
+      }
+      if (items.length) added += ingestMany_(items).filter(r => r === 'added').length;
+      if (limited) {   // keep the same page; already-saved emails are skipped as duplicates next time
+        props.setProperty('IMPORT_ADDED', String(added));
+        if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'importHistory')) ScriptApp.newTrigger('importHistory').timeBased().everyMinutes(1).create();
+        Logger.log('Gmail asked us to slow down; continuing in a minute');
+        return;
+      }
       start += ids.length; pageToken = res.nextPageToken;
       props.setProperty('IMPORT_AT', String(start)); props.setProperty('IMPORT_ADDED', String(added));
       if (pageToken) props.setProperty('IMPORT_PAGE', pageToken); else props.deleteProperty('IMPORT_PAGE');
