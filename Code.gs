@@ -59,6 +59,8 @@ function settings_() {
     bigPayment: saved.bigPayment != null ? Number(saved.bigPayment) : CONFIG.BIG_PAYMENT,
     emailAlerts: saved.emailAlerts != null ? !!saved.emailAlerts : CONFIG.EMAIL_ALERTS,
     balances: saved.balances || {},
+    accountMap: saved.accountMap || {},
+    payday: saved.payday || 'auto',
   };
 }
 
@@ -94,8 +96,11 @@ function saveSettings(pin, s) {
     else if (isFinite(Number(v))) balances[String(k).slice(0, 60)] = { value: Math.round(Number(v) * 100) / 100, at: Date.now() };
   }
   clearCache_();
+  const accountMap = Object.assign({}, old.accountMap);
+  for (const [k, v] of Object.entries(s.accountMap || {})) { if (!v || v === 'keep') delete accountMap[k]; else accountMap[String(k).slice(0, 60)] = String(v).slice(0, 60); }
+  const payday = s.payday === undefined ? old.payday : (s.payday === 'auto' || s.payday === 'calendar' ? s.payday : Math.min(31, Math.max(1, Number(s.payday) || 1)));
   props.setProperty('SETTINGS', JSON.stringify({
-    balances,
+    balances, accountMap, payday,
     budget: Math.max(0, Math.round(Number(s.budget) || 0)),
     categoryBudgets: cats,
     bigPayment: Math.max(0, Math.round(Number(s.bigPayment) || 0)),
@@ -208,7 +213,7 @@ function parseBankMessage(text) {
   }
 
   // Which comes first decides debit vs credit ("debited ... transferred from" etc.)
-  const debitRe = /\b(debited|debit(?:ed)? by|spent|sent|withdrawn|withdrawal|paid|purchase|used for|using your|txn of|dr\.?)\b/;
+  const debitRe = /\b(debited|debit(?:ed)? by|spent|sent|withdrawn|withdrawal|paid|purchase|used for|using your|txn of|transferred|transfer of|imps of|neft of|rtgs of|payment of|dr\.?)\b/;
   const creditRe = /\b(credited|received|deposited|refund(?:ed)?|reversed|cr\.?)\b/;
   const d = low.search(debitRe), c = low.search(creditRe);
   if (d < 0 && c < 0) return null;
@@ -232,9 +237,15 @@ function parseBankMessage(text) {
 
   // Account: last digits after A/c / Acct / Card
   let last4 = '';
-  const own = t.replace(/(sender|beneficiary|payee|remitter)(?:'s)?\s*(a\/c|acct|account)\s*(no\.?)?\s*[:\-]?\s*[x*.#]*\d{3,6}/ig, ' ');
-  m = own.match(/(?:your|from your|to your)\s*(?:a\/c|acct|account)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i) ||
-      own.match(/(?:credited to|debited from)\s+(?:a\/c\s*)?[x*]{2,}(\d{3,6})\b/i);
+  // Remove every mention of the OTHER side's account, so only yours is left:
+  // "Sender A/c XXXX8019", "to A/c XX9999", "beneficiary…", and on a debit "credited to a/c XX9988" (that's the receiver).
+  const AC = "(?:a\\/c|acct|account|ac)\\b\\.?\\s*(?:no\\.?|number)?\\s*[:\\-]?\\s*[x*.#]*\\s*\\d{3,6}";
+  let own = t.replace(new RegExp("(sender|beneficiary|payee|remitter|receiver)(?:'s)?\\s*" + AC, 'ig'), ' ')
+             .replace(new RegExp("\\b(to|towards|in favou?r of|linked to)\\s+(?!your\\b)(?:the\\s+)?" + AC, 'ig'), ' ');
+  if (type === 'debit') own = own.replace(new RegExp("\\bcredited\\s+to\\s+(?!your\\b)" + AC, 'ig'), ' ');
+  if (type === 'credit') own = own.replace(new RegExp("\\b(from|by)\\s+(?!your\\b)" + AC, 'ig'), ' ').replace(new RegExp("\\bdebited\\s+from\\s+(?!your\\b)" + AC, 'ig'), ' ');
+  m = own.match(/(?:your|from your|to your|in your)\s*(?:a\/c|acct|account)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i) ||
+      own.match(type === 'debit' ? /(?:debited from|from)\s+(?:a\/c\s*)?[x*]{2,}(\d{3,6})\b/i : /(?:credited to|to)\s+(?:a\/c\s*)?[x*]{2,}(\d{3,6})\b/i);
   if (m) last4 = m[1].slice(-4);
   if (!last4) m = own.match(/(?:a\/c|acct|acc|account|card|\bac)(?:\s*(?:no\.?|number|ending(?:\s*with)?))?\s*[:\-]?\s*[x*.#]*\s*(\d{3,6})\b/i);
   if (!last4 && m) last4 = m[1].slice(-4);
@@ -242,14 +253,16 @@ function parseBankMessage(text) {
   let bank = '';
   const noVpa = t.replace(/\S+@\S+/g, ' ');   // "okaxis" in a UPI id is not Axis Bank
   const head = t.slice(0, 40).toUpperCase();    // SMS arrives as "VM-HDFCBK: …" or "CANBNK-S …"
-  for (const [name, , codes] of BANKS) if (codes && new RegExp('(^|[^A-Z])(' + codes.source + ')').test(head)) { bank = name; break; }
+  let fromSender = false;   // the bank that SENT this message holds your account — the strongest signal
+  for (const [name, , codes] of BANKS) if (codes && new RegExp('(^|[^A-Z])(' + codes.source + ')').test(head)) { bank = name; fromSender = true; break; }
+  if (!bank) for (const [name, re] of BANKS) if (re.test(noVpa.slice(0, 80))) { bank = name; fromSender = /^\[[a-z0-9.\-]+\]/i.test(t); break; }
   if (!bank) for (const [name, re] of BANKS) if (re.test(noVpa)) { bank = name; break; }
   if (!bank) {   // any other bank: "ESAF Small Finance Bank", "Federal Bank", "XYZ Co-operative Bank"…
     const g = noVpa.match(/\b([A-Z][A-Za-z&]{1,20}(?:\s[A-Z][A-Za-z&]{1,20})?)\s+(?:small finance\s+|co-?operative\s+|payments\s+)?bank\b/i);
     if (g && !/^(your|the|dear|our|this|of|to|from|with|and|net|internet|mobile|any|by|at)$/i.test(g[1].split(' ')[0])) bank = g[1].split(' ')[0].toUpperCase() === g[1].split(' ')[0] ? g[1].split(' ')[0] : g[1].split(' ')[0][0].toUpperCase() + g[1].split(' ')[0].slice(1).toLowerCase();
   }
 
-  if (!last4) return bank ? null : { skip: 'not a bank alert' };
+  if (!last4 && !(bank && fromSender)) return bank ? null : { skip: 'not a bank alert' };
 
   const isCard = /credit card/i.test(t) || (limit !== null && !/debit card/i.test(t));
   const kind = isCard ? 'card' : 'bank';
@@ -269,7 +282,7 @@ function parseBankMessage(text) {
   if (!m && type === 'credit') m = t.match(new RegExp("\\bfrom\\s+([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i')) ||
       t.match(new RegExp("(?:\\bby\\b)\\s+([a-z0-9@._&'\\- ]{2,40}?)" + STOP, 'i'));
   const clean = x => {
-    x = (x || '').trim().replace(/^(a\/c|vpa|(by )?transfer from|from)\s+/i, '').replace(/\s+with$/i, '');
+    x = (x || '').trim().replace(/^((neft|imps|rtgs|upi)\s+)?(by|from)?\s*(sender|remitter)\s+/i, '').replace(/^(a\/c|vpa|(by )?transfer from|from)\s+/i, '').replace(/\s+with$/i, '');
     return (/^(your|a\/c|ac|acc|acct|account|rs|inr|x+\d+)\b/i.test(x) || /unsubscribe|click|view|download|http/i.test(x) || /^[\d\s\/-]+$/.test(x)) ? '' : x;
   };
   if (m) merchant = clean(m[1]);
@@ -441,7 +454,8 @@ function gmailMsg_(id) {
   walk(m.payload);
   const body = plain || html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/tr>/gi, '\n').replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#8377;|&#x20b9;/gi, '₹').replace(/&[a-z]+;/g, ' ');
-  return { text: (hdr.subject || '') + '. ' + body, when: new Date(Number(m.internalDate)), source: 'email' };
+  const dom = (String(hdr.from || '').match(/@([a-z0-9.\-]+)/i) || [])[1] || '';
+  return { text: (dom ? '[' + dom + '] ' : '') + (hdr.subject || '') + '. ' + body, when: new Date(Number(m.internalDate)), source: 'email' };
 }
 
 function scanGmail(fromApp) {
@@ -482,7 +496,9 @@ function buildSummary_() {
   const sh = sheet_(SHEET_TX, TX_HEADERS);
   const n = sh.getLastRow() - 1;
   // Only the 8 short columns: skipping the long message text makes this several times faster
-  const rows = n > 0 ? sh.getRange(2, 1, n, 8).getValues() : [];
+  let rows = n > 0 ? sh.getRange(2, 1, n, 8).getValues() : [];
+  const tidy = tidyAccounts_(rows, settings_().accountMap || {});
+  rows = tidy.rows;
   const catMemo = {};
   const catFor = m => catMemo[m] !== undefined ? catMemo[m] : (catMemo[m] = categorize_(m, '', custom));
   rows.sort((a, b) => new Date(a[0]) - new Date(b[0]));
@@ -492,11 +508,11 @@ function buildSummary_() {
   const fmt = (d, f) => Utilities.formatDate(new Date(d), tz, f);
 
   const now = new Date();
-  const thisMonth = fmt(now, 'yyyy-MM');
-  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 15);
-  const lastMonth = fmt(lastMonthDate, 'yyyy-MM');
-  const today = Number(fmt(now, 'd'));
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  // The budget period: payday to payday (from your salary), a fixed day, or the calendar month
+  const cyc = payCycle_(rows, S.payday, now);
+  const DAYMS = 86400000;
+  const today = Math.max(1, Math.ceil((now.getTime() - cyc.start) / DAYMS));      // day number within the period
+  const daysInMonth = Math.max(today, Math.round((cyc.end - cyc.start) / DAYMS)); // length of the period
   const todayKey = fmt(now, 'yyyy-MM-dd');
 
   const accounts = {};
@@ -520,14 +536,15 @@ function buildSummary_() {
     } else if (kind === 'card' && balance !== '' && balance !== null) a.balance = Number(balance);
     a.updated = new Date(when).toISOString();
 
-    const m = fmt(when, 'yyyy-MM'), day = Number(fmt(when, 'd'));
-    if (type === 'credit') { if (m === thisMonth) received += amount; continue; }
+    const inCycle = t >= cyc.start && t < cyc.end, inPrev = t >= cyc.prevStart && t < cyc.start;
+    const day = Math.min(daysInMonth, Math.floor((t - cyc.start) / DAYMS) + 1);
+    if (type === 'credit') { if (inCycle) received += amount; continue; }
 
     const cat = catFor(merchant);
     const ageDays = (now - new Date(when)) / 86400000;
     if (ageDays <= 30 && fmt(when, 'yyyy-MM-dd') !== todayKey) past30[fmt(when, 'yyyy-MM-dd')] = (past30[fmt(when, 'yyyy-MM-dd')] || 0) + amount;
 
-    if (m === thisMonth) {
+    if (inCycle) {
       spent += amount;
       daily[day - 1] += amount;
       byCat[cat] = (byCat[cat] || 0) + amount;
@@ -535,9 +552,10 @@ function buildSummary_() {
       byMerchant[who] = (byMerchant[who] || 0) + amount;
       if (fmt(when, 'yyyy-MM-dd') === todayKey) spentToday += amount;
       if (S.bigPayment > 0 && amount >= S.bigPayment) big.push({ when: new Date(when).toISOString(), amount, merchant: merchant || cat });
-    } else if (m === lastMonth) {
+    } else if (inPrev) {
       lastMonthTotal += amount;
-      if (day <= today) { lastMonthSoFar += amount; byCatLast[cat] = (byCatLast[cat] || 0) + amount; }
+      // compare like with like: the same number of days into the previous period
+      if (t - cyc.prevStart <= now.getTime() - cyc.start) { lastMonthSoFar += amount; byCatLast[cat] = (byCatLast[cat] || 0) + amount; }
     }
   }
 
@@ -592,6 +610,8 @@ function buildSummary_() {
     })),
     unparsed: unparsed ? Math.max(0, unparsed.getLastRow() - 1) : 0,
     settings: S,
+    accountList: tidy.list,
+    cycle: { start: new Date(cyc.start).toISOString(), end: new Date(cyc.end).toISOString(), payday: cyc.payday, from: cyc.from || '', mode: cyc.mode },
     status: status_(),
     // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
     history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
@@ -677,6 +697,68 @@ function brief_() {
 function getSummaryCached_() {
   const pin = PropertiesService.getScriptProperties().getProperty('PIN');
   return pin ? getSummary(pin) : buildSummary_();
+}
+
+/**
+ * Which accounts are really yours:
+ *  - your own choices in Settings win ("merge into …" or "not mine")
+ *  - a payment with no account number goes to your main account at that bank
+ *  - a number seen only once and never with a balance is folded into your main account at that bank
+ */
+function tidyAccounts_(rows, map) {
+  const stats = {};
+  rows.forEach(r => { const s = stats[r[1]] || (stats[r[1]] = { n: 0, bal: false }); s.n++; if (r[6] !== '' && r[6] !== null) s.bal = true; });
+  const bankOf = a => String(a).replace(/\s+(A\/c|Card)\b.*$/, '');
+  const main = {};   // bank → its account with the most payments
+  Object.keys(stats).filter(a => /xx\d/.test(a)).forEach(a => { const b = bankOf(a); if (!main[b] || stats[a].n > stats[main[b]].n) main[b] = a; });
+  const auto = {};
+  Object.keys(stats).forEach(a => {
+    const b = bankOf(a), m = main[b];
+    if (!m || m === a || /Card/.test(a) !== /Card/.test(m)) return;
+    if (!/xx\d/.test(a) || (stats[a].n < 2 && !stats[a].bal)) auto[a] = m;
+  });
+  const target = a => { const c = map[a]; if (c === 'hide') return null; if (c && c !== 'keep') return c; return auto[a] || a; };
+  const out = [];
+  rows.forEach(r => { const t = target(r[1]); if (t) { const x = r.slice(); x[1] = t; out.push(x); } });
+  const list = Object.keys(stats).map(a => ({ name: a, payments: stats[a].n, choice: map[a] || 'keep', autoMergedInto: auto[a] || null }))
+    .sort((x, y) => y.payments - x.payments);
+  return { rows: out, list };
+}
+
+/**
+ * The budget period.
+ *  'auto'     → from your last salary to the next one (salary = a big credit from a company, or one that repeats monthly)
+ *  a number   → from that day of the month (e.g. 26 → 26 Sep to 26 Oct)
+ *  'calendar' → 1st to 1st
+ * Falls back to the calendar month when no salary is found.
+ */
+function payCycle_(rows, setting, now) {
+  const tz = CONFIG.TIMEZONE, t0 = now.getTime();
+  const ymd = t => Utilities.formatDate(new Date(t), tz, 'yyyy-MM-dd').split('-').map(Number);
+  const at = (y, m, d) => { while (m > 12) { m -= 12; y++; } while (m < 1) { m += 12; y--; }
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); d = Math.min(d, last);
+    return Date.parse(y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') + 'T00:00:00+05:30'); };
+  const [Y, M, D] = ymd(t0);
+  const byDay = (day, mode) => {   // most recent "day N" on or before today
+    let start = at(Y, M, day); if (start > t0) start = at(Y, M - 1, day);
+    const [y, m] = ymd(start);
+    return { start, end: at(y, m + 1, day), prevStart: at(y, m - 1, day), payday: mode !== 'calendar', mode };
+  };
+  if (setting === 'calendar') return byDay(1, 'calendar');
+  if (typeof setting === 'number' || /^\d+$/.test(String(setting))) return byDay(Number(setting), 'day');
+
+  // automatic: find the salary
+  const COMPANY = /\b(pvt|private|ltd|limited|technolog|services|solutions|software|systems|india|corp|inc|llp|payroll|salary|consult|infotech|global)\b/i;
+  const big = rows.filter(r => r[3] === 'credit' && Number(r[4]) >= 5000 && r[5]);
+  const months = {}; big.forEach(r => { const k = String(r[5]).toLowerCase(); (months[k] = months[k] || new Set()).add(ymd(new Date(r[0]).getTime()).slice(0, 2).join('-')); });
+  const salary = big.filter(r => COMPANY.test(r[5]) || months[String(r[5]).toLowerCase()].size >= 2)
+    .map(r => ({ t: new Date(r[0]).getTime(), from: r[5] })).sort((a, b) => a.t - b.t);
+  const last = salary.filter(x => x.t <= t0).pop();
+  if (!last || t0 - last.t > 45 * 86400000) return Object.assign(byDay(1, 'calendar'), { mode: 'auto-none' });
+  const [y, m, d] = ymd(last.t);
+  const start = at(y, m, d);
+  const prev = salary.filter(x => x.t < start - 10 * 86400000).pop();
+  return { start, end: at(y, m + 1, d), prevStart: prev ? at(...ymd(prev.t)) : at(y, m - 1, d), payday: true, from: last.from, mode: 'auto' };
 }
 
 /** Called by the dashboard. The result is cached so repeat syncs are fast; any change clears it. */

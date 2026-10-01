@@ -159,6 +159,7 @@
   .field:last-child { border-bottom:0; }
   .field input { width:130px; text-align:right; padding:8px 10px; }
   .field input[type=checkbox] { width:24px; height:24px; }
+  .field select { font:inherit; font-size:15px; padding:8px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); max-width:190px; }
   .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom) + 76px); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; }
   .note { font-size:13px; color:var(--muted); margin:8px 0; }
   #lock, #onboard, #addHome { max-width:360px; margin:14vh auto 0; text-align:center; }
@@ -215,7 +216,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20260930220330';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20261001215439';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
@@ -399,19 +400,25 @@ function homeView(d) {
 }
 
 // "This month" in plain words, with the top 3 categories
+function cycleText(d) {   // "Since payday, 26 Sep" / "This month"
+  const c = d.cycle || {}, f = x => new Date(x).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return c.payday && c.start ? { title: 'Since payday, ' + f(c.start), until: 'until payday on ' + f(c.end), vs: 'than this point last pay period' }
+    : { title: 'This month', until: 'for the rest of the month', vs: 'than this time last month' };
+}
 function monthCard(d) {
+  const ct = cycleText(d);
   const over = d.budget && d.spent > d.budget, left = Math.max(0, d.budget - d.spent), daysLeft = d.daysInMonth - d.today + 1;
   const status = !d.budget ? '' : over ? `<b>${inr(d.spent - d.budget)}</b> over your ${inr(d.budget)} budget`
-    : `<b>${inr(left)}</b> left of ${inr(d.budget)} · about ${inr(d.safeToSpendPerDay)} a day for ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+    : `<b>${inr(left)}</b> left ${ct.until} · about ${inr(d.safeToSpendPerDay)} a day for ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
   const pct = d.budget ? Math.min(100, d.spent / d.budget * 100) : 0, pace = d.today / d.daysInMonth * 100;
   const cats = (d.categories || []).slice(0, 3), cmax = Math.max(1, ...cats.map(c => c.value));
   const vs = d.lastMonthSoFar > 0 ? Math.round((d.spent / d.lastMonthSoFar - 1) * 100) : null;
   return `<div class="card tap" onclick="setTab('spend')">
-    <div class="eyebrow">This month</div>
+    <div class="eyebrow">${ct.title}</div>
     <div class="headline">You've spent ${inr(d.spent)}</div>
     ${status ? `<div class="line">${status}</div>` : ''}
     ${d.budget ? `<div class="meter thin ${over ? 'over' : ''}"><div class="fill" style="width:${pct}%"></div><div class="pace" style="left:calc(${pace}% - 1px)"></div></div>` : ''}
-    ${vs !== null && Math.abs(vs) >= 5 ? `<div class="line muted">${Math.abs(vs)}% ${vs > 0 ? 'more' : 'less'} than this time last month</div>` : ''}
+    ${vs !== null && Math.abs(vs) >= 5 ? `<div class="line muted">${Math.abs(vs)}% ${vs > 0 ? 'more' : 'less'} ${ct.vs}</div>` : ''}
     ${cats.length ? `<div class="mini-cats">${cats.map(c => `<div class="mc"><div class="mc-top"><span><span class="sw" style="background:${CAT_COLOR[catOf(c.name)]}"></span>${esc(c.name)}</span><span class="amt">${inr(c.value)}</span></div>
       <div class="pbar"><div style="width:${c.value / cmax * 100}%;background:${CAT_COLOR[catOf(c.name)]}"></div></div></div>`).join('')}</div>` : ''}
     <div class="more">See spending <span>›</span></div>
@@ -915,6 +922,20 @@ function addPhone() {
   }).catch(() => toast('No connection'));
 }
 
+// Which accounts are yours: keep, merge one into another, or hide one that isn't yours
+function accountsSettings(d) {
+  const list = d.accountList || []; if (list.length < 2) return '';
+  const names = list.map(a => a.name);
+  return `<h1>Your accounts</h1><div class="card">
+    ${list.map(a => `<div class="field" style="align-items:flex-start"><div><div>${esc(short(a.name))}</div><div class="sub">${a.payments} payment${a.payments === 1 ? '' : 's'}${a.autoMergedInto && a.choice === 'keep' ? ' · added to ' + esc(short(a.autoMergedInto)) + ' automatically' : ''}</div></div>
+      <select data-acct="${esc(a.name)}" style="width:150px">
+        <option value="keep" ${a.choice === 'keep' ? 'selected' : ''}>${a.autoMergedInto ? 'Automatic' : 'My account'}</option>
+        ${names.filter(n => n !== a.name).map(n => `<option value="${esc(n)}" ${a.choice === n ? 'selected' : ''}>Same as ${esc(short(n))}</option>`).join('')}
+        <option value="hide" ${a.choice === 'hide' ? 'selected' : ''}>Not mine (hide)</option>
+      </select></div>`).join('')}
+  </div><p class="note">If the app made an account that isn't yours, choose "Not mine" or "Same as" your real one, then tap Save.</p>`;
+}
+
 // ───────── Settings tab ─────────
 function settingsView(d) {
   const S = d.settings || { budget: d.budget, categoryBudgets: {}, bigPayment: 0, emailAlerts: true };
@@ -923,7 +944,14 @@ function settingsView(d) {
   return `
     <h1>Budget</h1>
     <div class="card">
-      <div class="field"><span>Monthly budget (₹)</span>${num('s_budget', S.budget)}</div>
+      <div class="field"><span>Budget (₹)</span>${num('s_budget', S.budget)}</div>
+      <div class="field"><span>Budget period</span><select id="s_payday">
+        <option value="auto" ${S.payday === 'auto' || !S.payday ? 'selected' : ''}>From my salary (automatic)</option>
+        <option value="calendar" ${S.payday === 'calendar' ? 'selected' : ''}>Calendar month</option>
+        ${[...Array(31)].map((_, i) => `<option value="${i + 1}" ${String(S.payday) === String(i + 1) ? 'selected' : ''}>From the ${i + 1}${[, 'st', 'nd', 'rd'][(i + 1) % 10 > 3 || [11, 12, 13].includes(i + 1) ? 0 : (i + 1) % 10] || 'th'} of each month</option>`).join('')}
+      </select></div>
+      ${d.cycle && d.cycle.mode === 'auto' ? `<p class="note" style="margin:6px 0 0">Using your salary from ${esc(d.cycle.from)}: ${new Date(d.cycle.start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} to ${new Date(d.cycle.end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}.</p>`
+        : d.cycle && d.cycle.mode === 'auto-none' ? '<p class="note" style="margin:6px 0 0">No salary found yet, so it uses the calendar month for now.</p>' : ''}
       <div class="field"><span>Warn me about payments over (₹)</span>${num('s_big', S.bigPayment)}</div>
       <div class="field"><span>Email me at 9pm if I'm overspending</span><input id="s_email" type="checkbox" ${S.emailAlerts ? 'checked' : ''}></div>
     </div>
@@ -940,6 +968,7 @@ function settingsView(d) {
     ${LOCAL ? '' : `<h1>Your phones</h1>
     <div class="card"><p class="note" style="margin-top:0">To use Money on another phone, send it this link. Anyone with the link can see your money, so only send it to yourself.</p>
       <button onclick="addPhone()">Add another phone</button></div>`}
+    ${accountsSettings(d)}
     <h1>Bank balances</h1>
     <div class="card">
       ${(d.accounts || []).filter(a => a.kind === 'bank').map(a => `<div class="field"><span>${esc(a.name.replace(/ A\/c /, ' '))}</span>
@@ -976,8 +1005,10 @@ function saveSettings() {
   document.querySelectorAll('input[data-cat]').forEach(i => { if (Number(i.value) > 0) categoryBudgets[i.dataset.cat] = Number(i.value); });
   const setBalances = {};
   document.querySelectorAll('input[data-bal]').forEach(i => { const v = i.value.trim().replace(/[₹,\s]/g, '').replace('−', '-'); if (v !== '' && isFinite(Number(v))) setBalances[i.dataset.bal] = Number(v); });
+  const accountMap = {};
+  document.querySelectorAll('select[data-acct]').forEach(sel => accountMap[sel.dataset.acct] = sel.value);
   const settings = {
-    setBalances,
+    setBalances, accountMap, payday: (document.getElementById('s_payday') || {}).value || 'auto',
     budget: Number(document.getElementById('s_budget').value) || 0,
     bigPayment: Number(document.getElementById('s_big').value) || 0,
     emailAlerts: document.getElementById('s_email').checked,
