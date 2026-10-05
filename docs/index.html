@@ -216,7 +216,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20261005222054';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20261005222607';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}

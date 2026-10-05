@@ -208,9 +208,11 @@ function parseBankMessage(text) {
   const low = t.toLowerCase();
 
   // A failed / declined / bounced payment moved no money: skip it (a later "reversed"/"refunded" text still counts as money back)
-  if (/\b(failed|declined|unsuccessful|insufficient (funds|balance|bal)|could not be (processed|completed)|not been processed|rejected|has been cancelled|bounced|dishonou?red)\b/.test(low)
-      && !/\b(reversed|refunded|refund of|credited back)\b/.test(low)) return { skip: 'failed' };
-  if (/\botp\b|one[- ]time password|verification code|\bpin\b.*\bgenerat/.test(low)) return { skip: 'otp' };
+  // Only the main sentence counts (bank emails mention "failed transactions" in their small print)
+  const lead = low.slice(0, 260);
+  if (/\b(transaction|txn|payment|transfer|debit|upi)\b[^.]{0,80}\b(failed|declined|unsuccessful|rejected|bounced|could not be (processed|completed)|not been processed)\b|\b(failed|declined)\b[^.]{0,40}\b(transaction|txn|payment)\b|insufficient (funds|balance|bal)/.test(lead)
+      && !/\b(reversed|refunded|refund of|credited back)\b/.test(lead)) return { skip: 'failed' };
+  if (/\botp\b|one[- ]time password|verification code|\bpin\b.*\bgenerat/.test(low.slice(0, 160))) return { skip: 'otp' };
   if (/will be (debited|deducted|charged|auto)|is due|min(imum)?\.? (amt|amount)?\s*due|total (amt|amount )?due|due (date|on)|payment reminder|collect request|has requested|requested money|mandate (is )?(created|registered)|pre-?approved|eligible for|\bwin\b|cashback of|get up to|apply now|statement (is|for)/.test(low)) {
     return { skip: 'notice' };
   }
@@ -788,7 +790,7 @@ function reparseAll_() {
   if (n < 1) return { ok: true, removed: 0 };
   const rows = sh.getRange(2, 1, n, TX_HEADERS.length).getValues();
   const keep = [], removed = [];
-  rows.forEach(r => { const p = parseBankMessage(String(r[9] || '')); if (r[9] && (!p || p.skip === 'failed')) removed.push([r[0], r[4], r[5]]); else keep.push(r); });
+  rows.forEach(r => { const p = parseBankMessage(String(r[9] || '')); if (r[9] && p && p.skip === 'failed') removed.push([r[0], r[4], r[5]]); else keep.push(r); });
   if (removed.length) {
     sh.getRange(2, 1, n, TX_HEADERS.length).clearContent();
     if (keep.length) sh.getRange(2, 1, keep.length, TX_HEADERS.length).setValues(keep);
