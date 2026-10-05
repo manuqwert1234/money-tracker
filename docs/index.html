@@ -216,7 +216,7 @@ const ICON = { critical:'Over', warning:'Watch', good:'On track', info:'Note' };
 const IN_GOOGLE = !!(window.google && google.script && google.script.run);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-const BUILD = '20261001215439';   // replaced on publish; the app reloads itself when a newer build is live
+const BUILD = '20261005222054';   // replaced on publish; the app reloads itself when a newer build is live
 let PIN = store.get('pin') || '', URL_ = store.get('url') || '', TAB = store.get('tab') || 'home';
 let DATA = null, SYNCED = Number(store.get('synced') || 0), BUSY = false;
 try { DATA = JSON.parse(store.get('data') || 'null'); } catch (e) {}
@@ -438,7 +438,7 @@ function dayLabel(t) {
 }
 function dayGroups(list) {
   const groups = []; list.forEach(t => { const k = dayLabel(t[0]); const g = groups[groups.length - 1]; if (g && g.k === k) g.items.push(t); else groups.push({ k, items: [t] }); });
-  return groups.map(g => { const out = g.items.filter(t => !t[2]).reduce((s, t) => s + t[3], 0);
+  return groups.map(g => { const out = g.items.filter(t => !t[2] && !t[7]).reduce((s, t) => s + t[3], 0);
     return `<div class="dayhead"><span>${g.k}</span><span>${out ? '−' + inr(out) : ''}</span></div>${g.items.map(histRow).join('')}`; }).join('');
 }
 
@@ -477,7 +477,7 @@ function spPeriod(off) {
   return { start, end, label: start.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }), unit: 'day',
     buckets: [...Array(n)].map((_, i) => { const d0 = new Date(start.getFullYear(), start.getMonth(), i + 1); return { s: +d0, e: +d0 + DAY, label: (i + 1) % 7 === 1 ? String(i + 1) : '', long: d0.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) }; }) };
 }
-const spTx = (d, P) => (d.history || []).filter(t => !t[2] && t[0] >= +P.start && t[0] < +P.end && (SP_ACCT === 'all' || t[1] === SP_ACCT));
+const spTx = (d, P) => (d.history || []).filter(t => !t[2] && !t[7] && t[0] >= +P.start && t[0] < +P.end && (SP_ACCT === 'all' || t[1] === SP_ACCT));
 const byCat = tx => { const o = {}; tx.forEach(t => { const c = catOf(t[6]); o[c] = (o[c] || 0) + t[3]; }); return o; };
 const pctTxt = (a, b) => b > 0 ? Math.round((a / b - 1) * 100) : null;
 
@@ -617,8 +617,8 @@ function histRow(t) {
   const m = t[4] || '', name = niceName(m) || (t[2] ? 'Money received' : 'Payment');
   return `<div class="tx ${NEW_SINCE && t[0] > NEW_SINCE ? 'new' : ''}" onclick="event.stopPropagation(); pickCat(${JSON.stringify(m).replace(/"/g, '&quot;')}, '${catOf(t[6])}')">
     <div class="av">${esc(initials(name))}</div>
-    <div class="grow"><div class="ell nm">${esc(name)}</div><div class="sub ell">${t[2] ? 'Money in' : esc(catOf(t[6]))} · ${esc(short(t[1]))} · ${new Date(t[0]).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div></div>
-    <div class="amt ${t[2] ? 'credit' : ''}">${t[2] ? '+' : '−'}${inr(t[3])}</div></div>`;
+    <div class="grow"><div class="ell nm">${esc(name)}</div><div class="sub ell">${t[7] ? 'Between your accounts' : t[2] ? 'Money in' : esc(catOf(t[6]))} · ${esc(short(t[1]))} · ${new Date(t[0]).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div></div>
+    <div class="amt ${t[2] && !t[7] ? 'credit' : ''}" ${t[7] ? 'style="color:var(--muted)"' : ''}>${t[2] ? '+' : '−'}${inr(t[3])}</div></div>`;
 }
 
 function pickCat(merchant, current) {
@@ -703,7 +703,7 @@ function moneyChart(d) {
   if (SCRUB) {
     const b = B[SCRUB.i]; if (b) {
       const bt = (d.history || []).filter(t => t[0] >= b.s && t[0] < b.e);
-      const out = bt.filter(t => !t[2]).reduce((s, t) => s + t[3], 0), inn = bt.filter(t => t[2]).reduce((s, t) => s + t[3], 0);
+      const out = bt.filter(t => !t[2] && !t[7]).reduce((s, t) => s + t[3], 0), inn = bt.filter(t => t[2] && !t[7]).reduce((s, t) => s + t[3], 0);
       hero = money(valueAt(S, Math.min(b.e - 1, Date.now())));
       sub = `<span>${bucketLabel(b, unit, true)}</span> · <span class="debit">−${inr(out)}</span>${inn ? ` · <span class="credit">+${inr(inn)}</span>` : ''}`;
       list = bt.length ? `<div class="card" style="margin-top:10px">${bt.slice().reverse().slice(0, 12).map(histRow).join('')}${bt.length > 12 ? `<p class="note">+${bt.length - 12} more</p>` : ''}</div>` : '';
@@ -747,7 +747,7 @@ function wireMoney(d) {
   const area = path + `V${HL}H0Z`;
   const zero = lo < 0 && hi > 0 ? `<line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="2 3" opacity=".6"/><text x="${W}" y="${y(0) - 3}" text-anchor="end">₹0</text>` : '';
   // spending bars under it, same time axis
-  const spend = B.map(b => (d.history || []).filter(t => !t[2] && t[0] >= b.s && t[0] < b.e).reduce((s, t) => s + t[3], 0));
+  const spend = B.map(b => (d.history || []).filter(t => !t[2] && !t[7] && t[0] >= b.s && t[0] < b.e).reduce((s, t) => s + t[3], 0));
   const smax = Math.max(1, ...spend), bw = Math.max(1.5, W / B.length - (B.length > 40 ? 1 : 3));
   const by0 = HL + GAP + HB;
   let bars = '';
@@ -820,7 +820,7 @@ function recurring(tx) {
 }
 
 function analysisView(d) {
-  const B = banks(d), all = (d.history || []).filter(t => A_ACCT === 'all' || t[1] === A_ACCT);
+  const B = banks(d), all = (d.history || []).filter(t => !t[7] && (A_ACCT === 'all' || t[1] === A_ACCT));
   const S = totalSeries(d, A_ACCT), days = RANGES[A_RANGE], from = days ? Date.now() - days * DAY : (all.length ? all[0][0] : Date.now());
   const span = Math.max(1, (Date.now() - from) / DAY);
   const tx = all.filter(t => t[0] >= from), prev = days ? all.filter(t => t[0] >= from - days * DAY && t[0] < from) : [];

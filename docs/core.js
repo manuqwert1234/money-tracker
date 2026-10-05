@@ -207,6 +207,9 @@ function parseBankMessage(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
   const low = t.toLowerCase();
 
+  // A failed / declined / bounced payment moved no money: skip it (a later "reversed"/"refunded" text still counts as money back)
+  if (/\b(failed|declined|unsuccessful|insufficient (funds|balance|bal)|could not be (processed|completed)|not been processed|rejected|has been cancelled|bounced|dishonou?red)\b/.test(low)
+      && !/\b(reversed|refunded|refund of|credited back)\b/.test(low)) return { skip: 'failed' };
   if (/\botp\b|one[- ]time password|verification code|\bpin\b.*\bgenerat/.test(low)) return { skip: 'otp' };
   if (/will be (debited|deducted|charged|auto)|is due|min(imum)?\.? (amt|amount)?\s*due|total (amt|amount )?due|due (date|on)|payment reminder|collect request|has requested|requested money|mandate (is )?(created|registered)|pre-?approved|eligible for|\bwin\b|cashback of|get up to|apply now|statement (is|for)/.test(low)) {
     return { skip: 'notice' };
@@ -327,7 +330,8 @@ function ingestMany_(items) {
   const existing = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues() : [];
   const seen = new Map();   // key → [{src, t}]
   const remember = (k, src, t) => { if (!seen.has(k)) seen.set(k, []); seen.get(k).push({ src, t }); };
-  for (const r of existing) remember(r[8], r[7], new Date(r[0]).getTime());
+  // a UPI reference is shared by BOTH sides of a transfer, so a reference only means "duplicate" for the same account and direction
+  for (const r of existing) remember(/^ref:[^|]+$/.test(r[8]) ? r[8] + '|' + r[1] + '|' + r[3] : r[8], r[7], new Date(r[0]).getTime());
 
   const newRows = [], unparsed = [], results = [];
   for (const it of items) {
@@ -341,7 +345,7 @@ function ingestMany_(items) {
       else results.push('skipped');
       continue;
     }
-    const key = p.ref ? 'ref:' + p.ref : [p.account, p.type, p.amount, day_(when)].join('|');
+    const key = p.ref ? 'ref:' + p.ref + '|' + p.account + '|' + p.type : [p.account, p.type, p.amount, day_(when)].join('|');
     const t = when.getTime();
     const dup = (seen.get(key) || []).some(e => p.ref || e.src !== it.source || Math.abs(e.t - t) < 1000);
     if (dup) { results.push('duplicate'); continue; }
@@ -395,6 +399,7 @@ function doPost(e) {
   }
   if (body.action === 'brief') return ContentService.createTextOutput(brief_()).setMimeType(ContentService.MimeType.TEXT);
   if (body.action === 'importNow') { try { importHistory(); const pr = PropertiesService.getScriptProperties(); return json_({ ok: true, at: pr.getProperty('IMPORT_AT'), added: pr.getProperty('IMPORT_ADDED'), done: pr.getProperty('IMPORT_DONE'), rows: sheet_(SHEET_TX, TX_HEADERS).getLastRow() - 1 }); } catch (e) { return json_({ ok: false, error: String(e && e.stack || e) }); } }
+  if (body.action === 'reparse') return json_(reparseAll_());
   if (body.action === 'scanNow') { const t0 = Date.now(); try { return json_({ ok: true, added: scanGmail(true), ms: Date.now() - t0 }); } catch (e) { return json_({ ok: false, error: String(e), ms: Date.now() - t0 }); } }
   if (body.action === 'diag') {   // health check: how long the app's data takes, and any error (no money data returned)
     const t0 = Date.now();
@@ -503,6 +508,7 @@ function buildSummary_() {
   const catMemo = {};
   const catFor = m => catMemo[m] !== undefined ? catMemo[m] : (catMemo[m] = categorize_(m, '', custom));
   rows.sort((a, b) => new Date(a[0]) - new Date(b[0]));
+  markTransfers_(rows);   // money moved between your own accounts: not spending, not income
   const custom = customCategories_();
   const tz = CONFIG.TIMEZONE;
   const S = settings_();
@@ -525,7 +531,7 @@ function buildSummary_() {
 
   const manual = S.balances || {};   // { account: { value, at } } set by you in Settings
   const r2m = x => Math.round(x * 100) / 100;
-  for (const [when, account, kind, type, amount, merchant, balance, , , message] of rows) {
+  for (const [when, account, kind, type, amount, merchant, balance, , xfer] of rows) {
     const a = accounts[account] || (accounts[account] = { name: account, kind, balance: null, flow: 0, updated: null, since: 0, estimated: false });
     const t = new Date(when).getTime(), delta = type === 'credit' ? amount : -amount;
     a.flow = r2m(a.flow + delta);
@@ -536,6 +542,7 @@ function buildSummary_() {
       a.balance = r2m(a.balance + delta); a.since++; a.estimated = true;   // no balance in this message: work it out
     } else if (kind === 'card' && balance !== '' && balance !== null) a.balance = Number(balance);
     a.updated = new Date(when).toISOString();
+    if (xfer) continue;   // between your own accounts: moves balances, but isn't spending or income
 
     const inCycle = t >= cyc.start && t < cyc.end, inPrev = t >= cyc.prevStart && t < cyc.start;
     const day = Math.min(daysInMonth, Math.floor((t - cyc.start) / DAYMS) + 1);
@@ -616,7 +623,7 @@ function buildSummary_() {
     status: status_(),
     // Every transaction, compact: [time, account, type(1=in,0=out), amount, merchant, balance|null, category]
     history: rows.map(r => [new Date(r[0]).getTime(), r[1], r[3] === 'credit' ? 1 : 0, r[4], r[5] || '',
-      r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[3] === 'debit' ? catFor(r[5]) : 'Money in']),
+      r[6] === '' || r[6] === null || r[2] === 'card' ? null : Number(r[6]), r[8] ? 'Transfer' : r[3] === 'debit' ? catFor(r[5]) : 'Money in', r[8] ? 1 : 0]),
     allCategories: CATEGORIES,
   };
 }
@@ -773,6 +780,38 @@ function payCycle_(rows, setting, now) {
   const start = at(y, m, d);
   const prev = salary.filter(x => x.t < start - 10 * 86400000).pop();
   return { start, end: at(y, m + 1, d), prevStart: prev ? at(...ymd(prev.t)) : at(y, m - 1, d), payday: true, from: last.from, mode: 'auto' };
+}
+
+/** Re-check every saved payment with the latest reader; remove the ones that turn out not to be payments (e.g. failed). */
+function reparseAll_() {
+  const sh = sheet_(SHEET_TX, TX_HEADERS), n = sh.getLastRow() - 1;
+  if (n < 1) return { ok: true, removed: 0 };
+  const rows = sh.getRange(2, 1, n, TX_HEADERS.length).getValues();
+  const keep = [], removed = [];
+  rows.forEach(r => { const p = parseBankMessage(String(r[9] || '')); if (r[9] && (!p || p.skip === 'failed')) removed.push([r[0], r[4], r[5]]); else keep.push(r); });
+  if (removed.length) {
+    sh.getRange(2, 1, n, TX_HEADERS.length).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, TX_HEADERS.length).setValues(keep);
+    clearCache_();
+  }
+  return { ok: true, removed: removed.length, examples: removed.slice(0, 5).map(x => [String(x[0]).slice(0, 16), x[1], x[2]]) };
+}
+
+/**
+ * Money moved between your own accounts (e.g. HDFC → Canara, or paying your credit card from your bank):
+ * the same amount leaves one of your accounts and arrives in another within a few hours.
+ * Both sides are marked (index 8) so they move balances but never count as spending or income.
+ */
+function markTransfers_(rows) {
+  const WINDOW = 3 * 3600000, credits = {};
+  rows.forEach((r, i) => { r[8] = 0; if (r[3] === 'credit') (credits[Number(r[4]).toFixed(2)] = credits[Number(r[4]).toFixed(2)] || []).push(i); });
+  rows.forEach(d => {
+    if (d[3] !== 'debit') return;
+    const list = credits[Number(d[4]).toFixed(2)]; if (!list) return;
+    const td = new Date(d[0]).getTime();
+    const k = list.findIndex(i => rows[i][1] !== d[1] && !rows[i][8] && Math.abs(new Date(rows[i][0]).getTime() - td) <= WINDOW);
+    if (k >= 0) { rows[list[k]][8] = 1; d[8] = 1; list.splice(k, 1); }
+  });
 }
 
 /** Called by the dashboard. The result is cached so repeat syncs are fast; any change clears it. */
